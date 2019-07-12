@@ -24,8 +24,13 @@
 
 """
 
+import os
 import datetime
 from collections import defaultdict
+import xml.etree.ElementTree as ET
+
+
+_THIS_PATH = os.path.dirname(__file__) or "."
 
 
 class Bus:
@@ -38,7 +43,7 @@ class Bus:
         self._next_stop = kwargs.pop("next_stop")
         self._location = kwargs.pop("location")
         self._heading = kwargs.pop("heading")
-        Bus._all_buses[route_id].append(self)
+        Bus._all_buses[self._route_id].append(self)
 
     @staticmethod
     def all_buses():
@@ -50,14 +55,32 @@ class Bus:
         return Bus._all_buses[route_id]
 
     @staticmethod
-    def set_state(**kwargs):
-        bus = Bus(**kwargs)
-        Bus._all_buses[bus.route_id].append(bus)
-
-    @staticmethod
     def load_state():
         """ Loads a fresh state of all buses from the web """
+        # Clear previous state
         Bus._all_buses = defaultdict(list)
+        root = ET.parse(os.path.join(_THIS_PATH, "resources", "status.xml")).getroot()
+        for bus in root.findall('bus'):
+            lat = float(bus.get('lat'))
+            lon = float(bus.get('lon'))
+            heading = float(bus.get('head'))
+            route_id = bus.get('route')
+            stop = bus.get('stop')
+            next_stop = bus.get('next')
+            Bus(
+                route_id=route_id,
+                location=(lat, lon),
+                stop=stop,
+                next_stop=next_stop,
+                heading=heading
+            )
+        for key, val in Bus.all_buses().items():
+            print(f"Route {key}:")
+            for bus in val:
+                print(
+                    f"location: {bus.location}, head:{bus.heading}, "
+                    f"stop:{bus.stop}, next:{bus.next_stop}"
+                )
 
     @property
     def route_id(self):
@@ -66,6 +89,10 @@ class Bus:
     @property
     def location(self):
         return self._location
+
+    @property
+    def heading(self):
+        return self._heading
 
     @property
     def stop(self):
@@ -82,4 +109,16 @@ class BusStop:
 
     def __init__(self, stop_id):
         self._stop_id = stop_id
+        BusStop._all_stops[stop_id] = self
 
+    @staticmethod
+    def lookup(stop_id):
+        return BusStop._all_stops.get(stop_id) or BusStop(stop_id)
+
+    def __str__(self):
+        return self._stop_id
+
+
+if __name__ == "__main__":
+
+    Bus.load_state()
