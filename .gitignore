@@ -1,5 +1,6 @@
 # Resource files
 src/bus/resources/status.xml
+src/bus/config/*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
