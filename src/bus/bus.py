@@ -26,7 +26,7 @@
 
 import os
 import math
-from datetime import datetime
+from datetime import date, datetime
 import threading
 import functools
 from collections import defaultdict
@@ -93,6 +93,129 @@ entf = functools.partial(distance, _MIDEIND_LOCATION)
 def locfmt(loc):
     """ Return a (lat, lon) location tuple in a standard string format """
     return f"({loc[0]:.6f},{loc[1]:.6f})"
+
+
+class BusTrip:
+
+    _all_trips = dict()
+
+    def __init__(self, **kwargs):
+        self._id = kwargs.pop("trip_id")
+        self._headsign = kwargs.pop("headsign")
+        self._short_name = kwargs.pop("short_name")
+        self._direction = kwargs.pop("direction")
+        self._block = kwargs.pop("block")
+        BusTrip._all_trips[self._id] = self
+
+    @property
+    def id(self):
+        return self._id
+
+    def __str__(self):
+        return f"{self._id}: {self._headsign} {self._short_name} <{self._direction}>"
+
+    @staticmethod
+    def get(trip_id):
+        return BusTrip._all_trips.get(trip_id)
+
+
+class BusService:
+
+    _all_services = dict()
+
+    def __init__(self, service_id):
+        self._id = service_id
+        self._trips = dict()
+        # Decode year, month, date
+        self._valid_from = date(
+            int(service_id[0:4]),
+            int(service_id[4:6]),
+            int(service_id[6:8]),
+        )
+        # Decode weekday validity of service,
+        # M T W T F S S
+        self._weekdays = [
+            c != "-" for c in service_id[9:16]
+        ]
+        BusService._all_services[service_id] = self
+
+    @staticmethod
+    def get(service_id):
+        return BusService._all_services.get(service_id) or BusService(service_id)
+
+    @property
+    def id(self):
+        return self._id
+
+    @property
+    def trips(self):
+        return self._trips.values()
+
+    def is_active_on_date(self, on_date):
+        return self._valid_from <= on_date and self._weekdays[on_date.weekday()]
+
+    def is_active_on_weekday(self, weekday):
+        return self._weekdays[weekday]
+
+    def add_trip(self, trip):
+        self._trips[trip.id] = trip
+
+
+class BusRoute:
+
+    _all_routes = dict()
+
+    def __init__(self, route_id):
+        self._id = route_id
+        self._services = dict()
+        BusRoute._all_routes[route_id] = self
+
+    def add_service(self, service):
+        self._services[service.id] = service
+
+    def active_services(self, on_date=date.today()):
+        return [s for s in self._services.values() if s.is_active_on_date(on_date)]
+
+    def __str__(self):
+        return f"Route {self._id} with {len(self._services)} services"
+
+    @staticmethod
+    def get(route_id):
+        return BusRoute._all_routes.get(route_id) or BusRoute(route_id)
+
+    @staticmethod
+    def initialize():
+        """ Read information about bus routes from the trips.txt file """
+        BusRoute._all_routes = dict()
+        with open(os.path.join(_THIS_PATH, "resources", "trips.txt"), "r") as f:
+            index = 0
+            for line in f:
+                index += 1
+                if index == 1:
+                    # Ignore first line
+                    continue
+                line = line.strip()
+                if not line:
+                    continue
+                # Format is:
+                # route_id,service_id,trip_id,trip_headsign,trip_short_name,
+                # direction_id,block_id,shape_id
+                f = line.split(",")
+                assert len(f) == 8
+                # Convert 'ST.17' to '17'
+                route_id = f[0].split(".")[1]
+                route = BusRoute.get(route_id)
+                service = BusService.get(f[1])
+                route.add_service(service)
+                trip = BusTrip(
+                    trip_id=f[2],
+                    headsign=f[3],
+                    short_name=f[4],
+                    direction=f[5],
+                    block=f[6],
+                )
+                # We don't use shape_id, f[7], for now
+                service.add_trip(trip)
 
 
 class Bus:
@@ -188,6 +311,10 @@ class Bus:
     @property
     def route_id(self):
         return self._route_id
+
+    @property
+    def route(self):
+        return BusRoute.get(self._route_id)
 
     @property
     def location(self):
@@ -291,11 +418,15 @@ class BusStop:
 
 if __name__ == "__main__":
 
+    BusRoute.initialize()
     BusStop.initialize()
 
     all_buses = Bus.all_buses().items()
-    for key, val in sorted(all_buses, key=lambda b: b[0].rjust(2)):
-        print(f"Route {key}:")
+    for route_id, val in sorted(all_buses, key=lambda b: b[0].rjust(2)):
+        route = BusRoute.get(route_id)
+        print(f"{route}:")
+        for service in route.active_services():
+            print(f"   service {service.id}")
         for bus in sorted(val, key=lambda bus: entf(bus.location)):
             print(
                 f"   location:{locfmt(bus.location)}, head:{bus.heading:>6.2f}, "
