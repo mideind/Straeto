@@ -1,5 +1,6 @@
 # Resource files
 src/bus/resources/status.xml
+src/bus/resources/shapes.txt
 src/bus/config/*.txt
 
 # Byte-compiled / optimized / DLL files
@@ -106,3 +107,10 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Temporary/working files
+t

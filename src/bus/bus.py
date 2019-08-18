@@ -105,11 +105,24 @@ class BusTrip:
         self._short_name = kwargs.pop("short_name")
         self._direction = kwargs.pop("direction")
         self._block = kwargs.pop("block")
+        self._halts = dict()
         BusTrip._all_trips[self._id] = self
 
     @property
     def id(self):
         return self._id
+
+    @property
+    def halts(self):
+        return self._halts
+
+    @property
+    def sorted_halts(self):
+        return sorted(self._halts.items(), key=lambda h:h[0])
+
+    @property
+    def direction(self):
+        return self._direction
 
     def __str__(self):
         return f"{self._id}: {self._headsign} {self._short_name} <{self._direction}>"
@@ -118,24 +131,31 @@ class BusTrip:
     def get(trip_id):
         return BusTrip._all_trips.get(trip_id)
 
+    @staticmethod
+    def add_halt(trip_id, halt):
+        """ Add the halt to this trip, indexed by arrival time """
+        BusTrip.get(trip_id)._halts[halt.arrival_time] = halt
+
 
 class BusService:
 
     _all_services = dict()
 
     def __init__(self, service_id):
+        # The service id is a route id + '/' + a nonunique service id
         self._id = service_id
         self._trips = dict()
+        schedule = service_id.split("/")[1]
         # Decode year, month, date
         self._valid_from = date(
-            int(service_id[0:4]),
-            int(service_id[4:6]),
-            int(service_id[6:8]),
+            int(schedule[0:4]),
+            int(schedule[4:6]),
+            int(schedule[6:8]),
         )
         # Decode weekday validity of service,
         # M T W T F S S
         self._weekdays = [
-            c != "-" for c in service_id[9:16]
+            c != "-" for c in schedule[9:16]
         ]
         BusService._all_services[service_id] = self
 
@@ -163,6 +183,11 @@ class BusService:
 
 class BusRoute:
 
+    """ A BusRoute has one or more BusServices serving it.
+        Each BusService has one or more BusTrips associated with it.
+        Each BusTrip involves a number of BusStops, via a number
+        of BusHalts. """
+
     _all_routes = dict()
 
     def __init__(self, route_id):
@@ -177,11 +202,22 @@ class BusRoute:
         return [s for s in self._services.values() if s.is_active_on_date(on_date)]
 
     def __str__(self):
-        return f"Route {self._id} with {len(self._services)} services"
+        return (
+            f"Route {self._id} with {len(self._services)} services, of which "
+            f"{len(self.active_services())} are active today"
+        )
+
+    @property
+    def id(self):
+        return self._id
 
     @staticmethod
     def get(route_id):
         return BusRoute._all_routes.get(route_id) or BusRoute(route_id)
+
+    @staticmethod
+    def all_routes():
+        return BusRoute._all_routes
 
     @staticmethod
     def initialize():
@@ -205,7 +241,9 @@ class BusRoute:
                 # Convert 'ST.17' to '17'
                 route_id = f[0].split(".")[1]
                 route = BusRoute.get(route_id)
-                service = BusService.get(f[1])
+                # Make a unique service id out of the route id
+                # plus the non-unique service id
+                service = BusService.get(route_id + "/" + f[1])
                 route.add_service(service)
                 trip = BusTrip(
                     trip_id=f[2],
@@ -216,6 +254,135 @@ class BusRoute:
                 )
                 # We don't use shape_id, f[7], for now
                 service.add_trip(trip)
+
+
+class BusStop:
+
+    _all_stops = dict()
+
+    def __init__(self, stop_id, name, location):
+        self._id = stop_id
+        self._name = name
+        # Location is a tuple of (lat, lon)
+        (lat, lon) = self._location = location
+        assert -90.0 <= lat <= 90.0
+        assert -180.0 <= lon <= 180.0
+        # Maintain a dictionary of halts at this stop,
+        # indexed by arrival time
+        self._halts = dict()
+        BusStop._all_stops[stop_id] = self
+
+    @staticmethod
+    def lookup(stop_id):
+        """ Return a BusStop with the given id, or None if no such stop exists """
+        return BusStop._all_stops.get(stop_id)
+
+    def __str__(self):
+        return f"{self._name}"
+
+    @property
+    def stop_id(self):
+        return self._id
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def location(self):
+        return self._location
+
+    @staticmethod
+    def add_halt(stop_id, halt):
+        """ Add the halt to this stop, indexed by arrival time """
+        BusStop.lookup(stop_id)._halts[halt.arrival_time] = halt
+
+    @staticmethod
+    def initialize():
+        """ Read information about bus stops from the stops.txt file """
+        with open(os.path.join(_THIS_PATH, "resources", "stops.txt"), "r") as f:
+            index = 0
+            for line in f:
+                index += 1
+                if index == 1:
+                    # Ignore first line
+                    continue
+                line = line.strip()
+                if not line:
+                    continue
+                # Format is:
+                # stop_id,stop_name,stop_lat,stop_lon,location_type
+                f = line.split(",")
+                assert len(f) == 5
+                BusStop(
+                    stop_id=f[0].strip(),
+                    name=f[1].strip(),
+                    location=(float(f[2]), float(f[3]))
+                )
+
+
+class BusHalt:
+
+    """ The scheduled arrival and departure of a bus at a particular stop
+        on a particular trip """
+
+    def __init__(self, **kwargs):
+        self._trip_id = kwargs.pop("trip_id")
+        self._stop_id = kwargs.pop("stop_id")
+        self._stop_seq = kwargs.pop("stop_sequence")
+        # (h, m, s) tuple
+        self._arrival_time = kwargs.pop("arrival_time")
+        # (h, m, s) tuple
+        self._departure_time = kwargs.pop("departure_time")
+        self._pickup_type = kwargs.pop("pickup_type")
+
+        # Create relationships to the trip and to the stop
+        BusTrip.add_halt(self._trip_id, self)
+        BusStop.add_halt(self._stop_id, self)
+
+    @property
+    def arrival_time(self):
+        return self._arrival_time
+
+    @property
+    def departure_time(self):
+        return self._departure_time
+
+    @property
+    def stop(self):
+        return BusStop.lookup(self._stop_id)
+
+    @staticmethod
+    def initialize():
+        """ Read information about bus halts from the stop_times.txt file """
+
+        def to_hms(s):
+            """ Convert a hh:mm:ss string to a (h, m, s) tuple """
+            return (int(s[0:2]), int(s[3:5]), int(s[6:8]))
+
+        with open(os.path.join(_THIS_PATH, "resources", "stop_times.txt"), "r") as f:
+            index = 0
+            for line in f:
+                index += 1
+                if index == 1:
+                    # Ignore first line
+                    continue
+                line = line.strip()
+                if not line:
+                    continue
+                # Format is:
+                # trip_id,arrival_time,departure_time,stop_id,stop_sequence,stop_headsign,pickup_type
+                f = line.split(",")
+                assert len(f) == 7
+                BusHalt(
+                    trip_id=f[0].strip(),
+                    arrival_time=to_hms(f[1].strip()),
+                    departure_time=to_hms(f[2].strip()),
+                    stop_id=f[3].strip(),
+                    stop_sequence=f[4].strip(),
+                    # Ignore stop_headsign (seems to be always empty)
+                    pickup_type=f[6].strip(),
+                )
 
 
 class Bus:
@@ -239,6 +406,7 @@ class Bus:
         assert -180.0 <= lon <= 180.0
         self._heading = kwargs.pop("heading")
         self._code = kwargs.pop("code")
+        self._timestamp = kwargs.pop("timestamp")
         Bus._all_buses[self._route_id].append(self)
 
     @staticmethod
@@ -279,6 +447,15 @@ class Bus:
             # Fall back to reading state from file
             root = Bus._read_state()
         for bus in root.findall('bus'):
+            ts = bus.get('time')
+            ts = datetime(
+                year=2000 + int(ts[0:2]),
+                month=int(ts[2:4]),
+                day=int(ts[4:6]),
+                hour=int(ts[6:8]),
+                minute=int(ts[8:10]),
+                second=int(ts[10:12]),
+            )
             lat = float(bus.get('lat'))
             lon = float(bus.get('lon'))
             heading = float(bus.get('head'))
@@ -292,7 +469,8 @@ class Bus:
                 stop=stop,
                 next_stop=next_stop,
                 heading=heading,
-                code=code
+                code=code,
+                timestamp=ts
             )
         Bus._timestamp = datetime.utcnow()
 
@@ -333,6 +511,10 @@ class Bus:
         return BusStop.lookup(self._next_stop)
 
     @property
+    def timestamp(self):
+        return self._timestamp
+
+    @property
     def code(self):
         """ Bus state """
         # 1 Ekki notað
@@ -345,7 +527,7 @@ class Bus:
         # 6 Vagn í gangi og liðnar amk 15 sek frá síðasta skeyti.
         # 7 Komið á stöð
         return self._code
-    
+
     @property
     def state(self):
         """ Return the entire state in one call """
@@ -355,71 +537,39 @@ class Bus:
             self._heading,
             BusStop.lookup(self._stop),
             BusStop.lookup(self._next_stop),
-            self._code
+            self._code,
+            self._timestamp,
         )
-    
-
-class BusStop:
-
-    _all_stops = dict()
-
-    def __init__(self, stop_id, name, location):
-        self._id = stop_id
-        self._name = name
-        # Location is a tuple of (lat, lon)
-        (lat, lon) = self._location = location
-        assert -90.0 <= lat <= 90.0
-        assert -180.0 <= lon <= 180.0
-        BusStop._all_stops[stop_id] = self
-
-    @staticmethod
-    def lookup(stop_id):
-        """ Return a BusStop with the given id, or None if no such stop exists """
-        return BusStop._all_stops.get(stop_id)
-
-    def __str__(self):
-        return f"{self._name}"
-
-    @property
-    def stop_id(self):
-        return self._id
-    
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def location(self):
-        return self._location
-        
-    @staticmethod
-    def initialize():
-        """ Read information about bus stops from the stops.txt file """
-        with open(os.path.join(_THIS_PATH, "resources", "stops.txt"), "r") as f:
-            index = 0
-            for line in f:
-                index += 1
-                if index == 1:
-                    # Ignore first line
-                    continue
-                line = line.strip()
-                if not line:
-                    continue
-                # Format is:
-                # stop_id,stop_name,stop_lat,stop_lon,location_type
-                f = line.split(",")
-                assert len(f) == 5
-                BusStop(
-                    stop_id=f[0].strip(),
-                    name=f[1].strip(),
-                    location=(float(f[2]), float(f[3]))
-                )
 
 
 if __name__ == "__main__":
 
     BusRoute.initialize()
     BusStop.initialize()
+    BusHalt.initialize()
+
+    if False:
+        for route in BusRoute.all_routes().values():
+            print(f"{route}:")
+            for service in route.active_services():
+                print(f"   service {service.id}")
+                for trip in service.trips:
+                    print(f"      trip {trip.id}")
+                    for hms, halt in trip.sorted_halts:
+                        print(f"         halt {hms[0]:02}:{hms[1]:02}:{hms[2]:02} at {halt.stop.name}")
+
+    # Create a schedule:
+    # Route, stop, time
+    sched = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
+    for route in BusRoute.all_routes().values():
+        for service in route.active_services():
+            for trip in service.trips:
+                for hms, halt in trip.sorted_halts:
+                    sched[route.id][trip.direction][halt.stop.name].add(hms)
+
+    print(sched["12"])
+
+    print("\n\n")
 
     all_buses = Bus.all_buses().items()
     for route_id, val in sorted(all_buses, key=lambda b: b[0].rjust(2)):
