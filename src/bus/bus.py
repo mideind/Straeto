@@ -1,11 +1,9 @@
 """
 
-    Bus: A package encapsulating information about buses and bus routes
-
-    Bus and BusStop classes
+    Bus: A package encapsulating information about Icelandic buses and bus routes
 
     Copyright (c) 2019 Miðeind ehf.
-    Author: Vilhjálmur Þorsteinsson
+    Original author: Vilhjálmur Þorsteinsson
 
        This program is free software: you can redistribute it and/or modify
        it under the terms of the GNU General Public License as published by
@@ -20,7 +18,24 @@
     along with this program.  If not, see http://www.gnu.org/licenses/.
 
 
-    This module implements the Bus and BusStop classes.
+    This module implements several classes that represent the schedule
+    of Strætó bs., an Icelandic municipal bus company.
+
+    They include:
+
+        Bus         : A Bus, located somewhere on a particular route
+        BusStop     : A location where one or more Buses stop
+        BusTrip     : A particular Trip, undertaken during a day by a Bus on a Route
+        BusRoute    : A Route that is driven periodically by Buses, involving Stops
+        BusHalt     : A visit at at Stop by a Bus on a Trip, at a scheduled time
+        BusService  : A set of Trips that are driven as a part of a Route
+                      on particular dates
+        BusCalendar : A mapping of dates to the Services that are active on each date
+        BusSchedule : A wrapper object that can be queried about Bus arrivals at
+                      particular Stops on given Routes
+
+    The data are initialized from text files stored in the src/bus/resources directory.
+    They are in turn fetched from Strætó's website.
 
 """
 
@@ -40,7 +55,7 @@ _STATUS_FILE = os.path.join(_THIS_PATH, "resources", "status.xml")
 _STATUS_URL_FILE = os.path.join(_THIS_PATH, "config", "status_url.txt")
 _STATUS_URL = open(_STATUS_URL_FILE, "r").read().strip()
 _EARTH_RADIUS = 6371.0088  # Earth's radius in km
-_MIDEIND_LOCATION = (64.156896, -21.951200)
+_MIDEIND_LOCATION = (64.156896, -21.951200)  # Fiskislóð 31, 101 Reykjavík
 
 
 def distance(loc1, loc2):
@@ -86,7 +101,7 @@ def distance(loc1, loc2):
     return _EARTH_RADIUS * c
 
 
-# Entfernung
+# Entfernung - used for test purposes
 entf = functools.partial(distance, _MIDEIND_LOCATION)
 
 
@@ -95,17 +110,82 @@ def locfmt(loc):
     return f"({loc[0]:.6f},{loc[1]:.6f})"
 
 
+class BusCalendar:
+
+    """ This class contains a mapping from dates to the BusServices that
+        are active on each date. """
+
+    # Call BusCalendar.initialize() to initialize the calendar
+    _calendar = None
+
+    @staticmethod
+    def lookup(d):
+        """ Return a set of service_ids that are active on the given date """
+        return BusCalendar._calendar.get(d, set())
+
+    @staticmethod
+    def today():
+        """ Return a set of service_ids that are active today (UTC/Icelandic time) """
+        now = datetime.utcnow()
+        return BusCalendar.lookup(date(now.year, now.month, now.day))
+
+    @staticmethod
+    def initialize():
+        """ Read information about the service calendar from
+            the calendar_dates.txt file """
+        BusCalendar._calendar = defaultdict(set)
+        with open(
+            os.path.join(_THIS_PATH, "resources", "calendar_dates.txt"),
+            "r",
+        ) as f:
+            index = 0
+            for line in f:
+                index += 1
+                if index == 1:
+                    # Ignore first line
+                    continue
+                line = line.strip()
+                if not line:
+                    continue
+                # Format is:
+                # service_id,date,exception_type
+                f = line.split(",")
+                assert len(f) == 3
+                d = f[1].strip()
+                year = int(d[0:4])
+                month = int(d[4:6])
+                day = int(d[6:8])
+                assert 2000 <= year <= 2100
+                assert 1 <= month <= 12
+                assert 1 <= day <= 31
+                # Add this service id to the set of services that are active
+                # on the indicated date
+                BusCalendar._calendar[date(year, month, day)].add(f[0].strip())
+
+
 class BusTrip:
+
+    """ A BusTrip is a trip undertaken by a Bus on a particular Route,
+        spanning several Stops that are visited at points in time given
+        in Halts. """
 
     _all_trips = dict()
 
     def __init__(self, **kwargs):
         self._id = kwargs.pop("trip_id")
+        self._route_id = kwargs.pop("route_id")
         self._headsign = kwargs.pop("headsign")
         self._short_name = kwargs.pop("short_name")
         self._direction = kwargs.pop("direction")
         self._block = kwargs.pop("block")
         self._halts = dict()
+        # Cache a sorted list of halts and arrival times for this trip
+        self._sorted_halts = None
+        # Store the first and last stop ids for this trip
+        self._first_stop = None
+        self._last_stop_seq = 0
+        self._last_stop = None
+        # Accumulate a singleton database of all trips
         BusTrip._all_trips[self._id] = self
 
     @property
@@ -114,30 +194,67 @@ class BusTrip:
 
     @property
     def halts(self):
+        """ Returns a dictionary of BusHalts on this trip,
+            keyed by arrival time (h, m, s) """
         return self._halts
 
     @property
     def sorted_halts(self):
-        return sorted(self._halts.items(), key=lambda h:h[0])
+        """ Returns a list of BusHalts on this trip, sorted by arrival time (h:m:s) """
+        # We only calculate the list of sorted halts once, then cache it
+        if self._sorted_halts is None:
+            self._sorted_halts = sorted(self._halts.items(), key=lambda h:h[0])
+        return self._sorted_halts
 
     @property
     def direction(self):
+        """ The direction of this trip, '0' or '1' """
         return self._direction
+
+    @property
+    def last_stop(self):
+        """ The last BusStop visited on this trip """
+        return self._last_stop
+
+    @property
+    def first_stop(self):
+        """ The first BusStop visited on this trip """
+        return self._first_stop
+
+    @property
+    def route(self):
+        return BusRoute.lookup(self._route_id)
 
     def __str__(self):
         return f"{self._id}: {self._headsign} {self._short_name} <{self._direction}>"
 
     @staticmethod
-    def get(trip_id):
+    def lookup(trip_id):
+        """ Return a BusTrip having the given id, or None if it doesn't exist """
         return BusTrip._all_trips.get(trip_id)
+
+    def _add_halt(self, halt):
+        """ Add a halt to this trip """
+        # Index by arrival time
+        self._halts[halt.arrival_time] = halt
+        if halt.stop_seq == 1:
+            # This is the first stop in the trip
+            self._first_stop = halt.stop
+        elif halt.stop_seq > self._last_stop_seq:
+            # This is, so far, the last stop in the trip
+            self._last_stop = halt.stop
+            self._last_stop_seq = halt.stop_seq
 
     @staticmethod
     def add_halt(trip_id, halt):
-        """ Add the halt to this trip, indexed by arrival time """
-        BusTrip.get(trip_id)._halts[halt.arrival_time] = halt
+        """ Add a halt to this trip """
+        BusTrip.lookup(trip_id)._add_halt(halt)
 
 
 class BusService:
+
+    """ A BusService encapsulates a set of trips on a BusRoute that can be
+        active on a particular date, as determined by a BusCalendar """
 
     _all_services = dict()
 
@@ -145,7 +262,7 @@ class BusService:
         # The service id is a route id + '/' + a nonunique service id
         self._id = service_id
         self._trips = dict()
-        schedule = service_id.split("/")[1]
+        self._service = schedule = service_id.split("/")[1]
         # Decode year, month, date
         self._valid_from = date(
             int(schedule[0:4]),
@@ -160,7 +277,8 @@ class BusService:
         BusService._all_services[service_id] = self
 
     @staticmethod
-    def get(service_id):
+    def lookup(service_id):
+        """ Get a BusService by its identifier """
         return BusService._all_services.get(service_id) or BusService(service_id)
 
     @property
@@ -169,15 +287,24 @@ class BusService:
 
     @property
     def trips(self):
+        """ The trips associated with this service """
         return self._trips.values()
 
     def is_active_on_date(self, on_date):
-        return self._valid_from <= on_date and self._weekdays[on_date.weekday()]
+        """ Returns True if the service is active on the given date """
+        return (
+            # self._valid_from <= on_date and
+            # self._weekdays[on_date.weekday()] and
+            self._service in BusCalendar.lookup(on_date)
+        )
 
     def is_active_on_weekday(self, weekday):
+        """ Returns True if the service is active on the given weekday.
+            This is currently not reliable. """
         return self._weekdays[weekday]
 
     def add_trip(self, trip):
+        """ Add a trip to this service """
         self._trips[trip.id] = trip
 
 
@@ -196,15 +323,26 @@ class BusRoute:
         BusRoute._all_routes[route_id] = self
 
     def add_service(self, service):
+        """ Add a service to this route """
         self._services[service.id] = service
 
-    def active_services(self, on_date=date.today()):
+    def active_services(self, on_date):
+        """ Returns a list of the services on this route
+            that are active on the given date """
+        if on_date is None:
+            now = datetime.utcnow()
+            on_date = date(now.year, now.month, now.day)
         return [s for s in self._services.values() if s.is_active_on_date(on_date)]
+
+    def active_services_today(self):
+        """ Returns a list of the services on this route
+            that are active today, based on UTC (Icelandic time) """
+        return self.active_services(None)
 
     def __str__(self):
         return (
             f"Route {self._id} with {len(self._services)} services, of which "
-            f"{len(self.active_services())} are active today"
+            f"{len(self.active_services_today())} are active today"
         )
 
     @property
@@ -212,11 +350,13 @@ class BusRoute:
         return self._id
 
     @staticmethod
-    def get(route_id):
+    def lookup(route_id):
+        """ Return the route having the given identifier """
         return BusRoute._all_routes.get(route_id) or BusRoute(route_id)
 
     @staticmethod
     def all_routes():
+        """ Return a dictionary of all routes, keyed by identifier """
         return BusRoute._all_routes
 
     @staticmethod
@@ -240,13 +380,14 @@ class BusRoute:
                 assert len(f) == 8
                 # Convert 'ST.17' to '17'
                 route_id = f[0].split(".")[1]
-                route = BusRoute.get(route_id)
+                route = BusRoute.lookup(route_id)
                 # Make a unique service id out of the route id
                 # plus the non-unique service id
-                service = BusService.get(route_id + "/" + f[1])
+                service = BusService.lookup(route_id + "/" + f[1])
                 route.add_service(service)
                 trip = BusTrip(
                     trip_id=f[2],
+                    route_id=route_id,
                     headsign=f[3],
                     short_name=f[4],
                     direction=f[5],
@@ -257,6 +398,9 @@ class BusRoute:
 
 
 class BusStop:
+
+    """ A BusStop is a place at a particular location where one or more
+        buses stop on their trips. """
 
     _all_stops = dict()
 
@@ -277,6 +421,14 @@ class BusStop:
         """ Return a BusStop with the given id, or None if no such stop exists """
         return BusStop._all_stops.get(stop_id)
 
+    @staticmethod
+    def closest_to(location):
+        """ Find the bus stop closest to the given location and return it """
+        dist = [(distance(location, stop.location), stop) for stop in BusStop._all_stops.values()]
+        if not dist:
+            return None
+        return sorted(dist, key=lambda t:t[0])[0][1]
+
     def __str__(self):
         return f"{self._name}"
 
@@ -294,7 +446,7 @@ class BusStop:
 
     @staticmethod
     def add_halt(stop_id, halt):
-        """ Add the halt to this stop, indexed by arrival time """
+        """ Add a halt to this stop, indexed by arrival time """
         BusStop.lookup(stop_id)._halts[halt.arrival_time] = halt
 
     @staticmethod
@@ -329,7 +481,8 @@ class BusHalt:
     def __init__(self, **kwargs):
         self._trip_id = kwargs.pop("trip_id")
         self._stop_id = kwargs.pop("stop_id")
-        self._stop_seq = kwargs.pop("stop_sequence")
+        # The sequence number of this stop within its trip
+        self._stop_seq = int(kwargs.pop("stop_sequence"))
         # (h, m, s) tuple
         self._arrival_time = kwargs.pop("arrival_time")
         # (h, m, s) tuple
@@ -349,8 +502,16 @@ class BusHalt:
         return self._departure_time
 
     @property
+    def stop_seq(self):
+        return self._stop_seq
+
+    @property
     def stop(self):
         return BusStop.lookup(self._stop_id)
+
+    @property
+    def trip(self):
+        return BusTrip.lookup(self._trip_id)
 
     @staticmethod
     def initialize():
@@ -492,7 +653,7 @@ class Bus:
 
     @property
     def route(self):
-        return BusRoute.get(self._route_id)
+        return BusRoute.lookup(self._route_id)
 
     @property
     def location(self):
@@ -542,44 +703,127 @@ class Bus:
         )
 
 
+class BusSchedule:
+
+    """ This class constructs a bus schedule for a particular date, by default today,
+        which can then be queried. """
+
+    def __init__(self, for_date=None):
+        """ Create a schedule for today: Route, stop, time """
+        s = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        for route in BusRoute.all_routes().values():
+            for service in route.active_services(on_date=for_date):
+                for trip in service.trips:
+                    for hms, halt in trip.sorted_halts:
+                        s[route.id][trip.last_stop.name][halt.stop.stop_id].append(hms)
+        self._sched = s
+
+    def print_schedule(self, route_id):
+        """ Print a schedule for a given route """
+        print("Áætlun leiðar {0:2}".format(route_id))
+        print("----------------")
+        s = self._sched[route_id]
+        for direction, halts in s.items():
+            print("Átt: {0}".format(direction))
+            for stop_id, times in halts.items():
+                print("   Stöð: {0}".format(BusStop.lookup(stop_id).name))
+                col = 0
+                for hms in sorted(times):
+                    if col == 8:
+                        print()
+                        col = 0
+                    if col == 0:
+                        print("     ", end="")
+                    print(" {0:02}:{1:02}".format(hms[0], hms[1]), end="")
+                    col += 1
+                print()
+        print("\n\n")
+
+    def arrivals(self, route_id, stop_id, after_hms=None):
+        """ Return a list of the subsequent arrivals of buses on the
+            given route at the indicated stop, with reference to the
+            given timepoint, or the current time if None. """
+        if after_hms is None:
+            now = datetime.utcnow()
+            after_hms = (now.hour, now.minute, now.second)
+        s = self._sched[route_id]
+        # h is a list of halts for each direction
+        h = defaultdict(list)
+        for direction, halts in s.items():
+            for halt_stop_id, times in halts.items():
+                if halt_stop_id == stop_id:
+                    h[direction] += [hms for hms in times if hms >= after_hms]
+        for direction, arrival_times in h.items():
+            # Return the first two subsequent arrival times
+            # for each direction
+            h[direction] = sorted(arrival_times)[:2]
+        return h
+
+
+def print_closest_stop(location):
+    """ Answers the query: 'what is the closest bus stop' """
+    s = BusStop.closest_to(location)
+    print("Bus stop closest to {0} is {1}".format(location, s.name))
+    print(
+        "The distance to it is {0:.1f} km"
+        .format(distance(location, s.location))
+    )
+
+
+def print_next_arrivals(schedule, location, route_id):
+    """ Answers the query: 'when does bus X arrive?' at a given location """
+    s = BusStop.closest_to(location)
+    print("Bus stop closest to {0} is {1}".format(location, s.name))
+    print("Next arrivals of route {0} are:".format(route_id))
+    for direction, times in schedule.arrivals(route_id, s.stop_id).items():
+        print(
+            "   Direction {0}: {1}"
+            .format(
+                direction,
+                ", ".join(
+                    "{0:02}:{1:02}".format(hms[0], hms[1]) for hms in times
+                )
+            )
+        )
+
+
+# When importing this module, initialize its data
+BusStop.initialize()
+BusCalendar.initialize()
+BusRoute.initialize()
+BusHalt.initialize()
+
+
 if __name__ == "__main__":
 
-    BusRoute.initialize()
-    BusStop.initialize()
-    BusHalt.initialize()
+    # 'Hvar er næsta stoppistöð?'
+    print_closest_stop(_MIDEIND_LOCATION)
+
+    # 'Hvenær kemur strætó númer 14?'
+    sched_today = BusSchedule()
+    print_next_arrivals(sched_today, _MIDEIND_LOCATION, "14")
+
+    sched_today.print_schedule("12")
 
     if False:
         for route in BusRoute.all_routes().values():
             print(f"{route}:")
-            for service in route.active_services():
+            for service in route.active_services_today():
                 print(f"   service {service.id}")
                 for trip in service.trips:
                     print(f"      trip {trip.id}")
                     for hms, halt in trip.sorted_halts:
                         print(f"         halt {hms[0]:02}:{hms[1]:02}:{hms[2]:02} at {halt.stop.name}")
 
-    # Create a schedule:
-    # Route, stop, time
-    sched = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
-    for route in BusRoute.all_routes().values():
-        for service in route.active_services():
-            for trip in service.trips:
-                for hms, halt in trip.sorted_halts:
-                    sched[route.id][trip.direction][halt.stop.name].add(hms)
-
-    print(sched["12"])
-
-    print("\n\n")
-
-    all_buses = Bus.all_buses().items()
-    for route_id, val in sorted(all_buses, key=lambda b: b[0].rjust(2)):
-        route = BusRoute.get(route_id)
-        print(f"{route}:")
-        for service in route.active_services():
-            print(f"   service {service.id}")
-        for bus in sorted(val, key=lambda bus: entf(bus.location)):
-            print(
-                f"   location:{locfmt(bus.location)}, head:{bus.heading:>6.2f}, "
-                f"stop:{bus.stop}, next:{bus.next_stop}, code:{bus.code}, "
-                f"distance:{entf(bus.location):.2f}"
-            )
+        all_buses = Bus.all_buses().items()
+        for route_id, val in sorted(all_buses, key=lambda b: b[0].rjust(2)):
+            route = BusRoute.lookup(route_id)
+            print(f"{route}:")
+            for service in route.active_services_today():
+                print(f"   service {service.id}")
+            for bus in sorted(val, key=lambda bus: entf(bus.location)):
+                print(
+                    f"   location:{locfmt(bus.location)}, head:{bus.heading:>6.2f}, "
+                    f"stop:{bus.stop}, next:{bus.next_stop}, code:{bus.code}, "
+                    f"distance:{entf(bus.location):.2f}"
+                )
