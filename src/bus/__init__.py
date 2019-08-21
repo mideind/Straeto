@@ -24,8 +24,25 @@
 """
 
 # Expose the bus API
-from .bus import Bus, BusStop
+from .bus import (
+    Bus,
+    BusSchedule,
+    BusCalendar,
+    BusRoute,
+    BusService,
+    BusTrip,
+    BusStop,
+    BusHalt,
+    distance,
+    locfmt,
+)
 
+# Debugging
+from .bus import (
+    print_closest_stop,
+    print_next_arrivals,
+    _MIDEIND_LOCATION,
+)
 
 __author__ = "Miðeind ehf."
 __copyright__ = "(C) 2019 Miðeind ehf."
