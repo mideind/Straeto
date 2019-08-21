@@ -1,6 +1,6 @@
 """
 
-    Bus: A package encapsulating information about buses and bus routes
+    Straeto: A package encapsulating information about buses and bus routes
 
     Copyright(C) 2018 Miðeind ehf.
     Original author: Vilhjálmur Þorsteinsson
@@ -24,7 +24,7 @@
 """
 
 # Expose the bus API
-from .bus import (
+from .straeto import (
     Bus,
     BusSchedule,
     BusCalendar,
@@ -38,7 +38,7 @@ from .bus import (
 )
 
 # Debugging
-from .bus import (
+from .straeto import (
     print_closest_stop,
     print_next_arrivals,
     _MIDEIND_LOCATION,

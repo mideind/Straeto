@@ -1,6 +1,6 @@
 """
 
-    Bus: A package encapsulating information about Icelandic buses and bus routes
+    straeto.py: A package encapsulating information about Icelandic buses and bus routes
 
     Copyright (c) 2019 Miðeind ehf.
     Original author: Vilhjálmur Þorsteinsson

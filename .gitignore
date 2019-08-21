@@ -1,7 +1,7 @@
 # Resource files
-src/bus/resources/status.xml
-src/bus/resources/shapes.txt
-src/bus/config/*.txt
+src/straeto/resources/status.xml
+src/straeto/resources/shapes.txt
+src/straeto/config/*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -111,6 +111,10 @@ venv.bak/
 # VSCode
 .vscode/
 *.code-workspace
+
+# Sublime
+*.sublime-project
+*.sublime-workspace
 
 # Temporary/working files
 t

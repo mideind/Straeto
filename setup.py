@@ -2,7 +2,7 @@
 # -*- encoding: utf-8 -*-
 
 """
-    Bus: A package encapsulating information about buses and bus routes
+    Straeto: A package encapsulating information about buses and bus routes
 
     Setup.py
 
@@ -22,7 +22,7 @@
     along with this program.  If not, see http://www.gnu.org/licenses/.
 
 
-    This module sets up the bus package.
+    This module sets up the straeto package.
 
 """
 
@@ -41,7 +41,7 @@ from setuptools import setup
 
 
 if sys.version_info < (3, 4):
-    print("Bus requires Python >= 3.4")
+    print("Straeto requires Python >= 3.4")
     sys.exit(1)
 
 
@@ -56,9 +56,9 @@ def read(*names, **kwargs):
 
 
 setup(
-    name="bus",
+    name="straeto",
     # Remember to modify version numbers in
-    # doc/conf.py and src/bus/__init__.py as well
+    # doc/conf.py and src/straeto/__init__.py as well
     version="0.0.1",
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
@@ -69,7 +69,7 @@ setup(
     ),
     author="Miðeind ehf",
     author_email="vt@extrada.com",
-    url="https://github.com/mideind/Bus",
+    url="https://github.com/mideind/Straeto",
     packages=find_packages("src"),
     package_dir={"": "src"},
     py_modules=[splitext(basename(path))[0] for path in glob("src/*.py")],
