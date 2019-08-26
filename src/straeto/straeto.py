@@ -116,7 +116,7 @@ class BusCalendar:
         are active on each date. """
 
     # Call BusCalendar.initialize() to initialize the calendar
-    _calendar = None
+    _calendar = defaultdict(set)
 
     @staticmethod
     def lookup(d):
@@ -478,28 +478,22 @@ class BusHalt:
     """ The scheduled arrival and departure of a bus at a particular stop
         on a particular trip """
 
-    def __init__(self, **kwargs):
-        self._trip_id = kwargs.pop("trip_id")
-        self._stop_id = kwargs.pop("stop_id")
+    def __init__(self, trip_id, arrival_time, stop_id, stop_sequence):
+        self._trip_id = trip_id
+        self._stop_id = stop_id
         # The sequence number of this stop within its trip
-        self._stop_seq = int(kwargs.pop("stop_sequence"))
+        self._stop_seq = stop_sequence
         # (h, m, s) tuple
-        self._arrival_time = kwargs.pop("arrival_time")
-        # (h, m, s) tuple
-        self._departure_time = kwargs.pop("departure_time")
-        self._pickup_type = kwargs.pop("pickup_type")
-
+        self._arrival_time = arrival_time
+        # self._departure_time = departure_time
+        # self._pickup_type = pickup_type
         # Create relationships to the trip and to the stop
-        BusTrip.add_halt(self._trip_id, self)
-        BusStop.add_halt(self._stop_id, self)
+        BusTrip.add_halt(trip_id, self)
+        BusStop.add_halt(stop_id, self)
 
     @property
     def arrival_time(self):
         return self._arrival_time
-
-    @property
-    def departure_time(self):
-        return self._departure_time
 
     @property
     def stop_seq(self):
@@ -536,13 +530,13 @@ class BusHalt:
                 f = line.split(",")
                 assert len(f) == 7
                 BusHalt(
-                    trip_id=f[0].strip(),
-                    arrival_time=to_hms(f[1].strip()),
-                    departure_time=to_hms(f[2].strip()),
-                    stop_id=f[3].strip(),
-                    stop_sequence=f[4].strip(),
+                    f[0].strip(),  # trip_id
+                    to_hms(f[1].strip()),  # arrival_time
+                    # to_hms(f[2].strip()),  # departure_time
+                    f[3].strip(),  # stop_id
+                    int(f[4]),  # stop_sequence
                     # Ignore stop_headsign (seems to be always empty)
-                    pickup_type=f[6].strip(),
+                    # f[6].strip(),  # pickup_type
                 )
 
 
@@ -553,7 +547,7 @@ class Bus:
         heading, its last or current stop, its next stop,
         and its status code. """
 
-    _all_buses = None
+    _all_buses = defaultdict(list)
     _timestamp = None
     _lock = threading.Lock()
 
@@ -585,6 +579,7 @@ class Bus:
     def _fetch_state():
         """ Fetch new state via HTTP """
         r = requests.get(_STATUS_URL)
+        # pylint: disable=no-member
         if r is not None and r.status_code == requests.codes.ok:
             print(f"Successfully fetched state from {_STATUS_URL}")
             html_doc = r.text
@@ -711,12 +706,26 @@ class BusSchedule:
     def __init__(self, for_date=None):
         """ Create a schedule for today: Route, stop, time """
         s = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        if for_date is None:
+            now = datetime.utcnow()
+            for_date = date(now.year, now.month, now.day)
+        self._for_date = for_date
         for route in BusRoute.all_routes().values():
             for service in route.active_services(on_date=for_date):
                 for trip in service.trips:
                     for hms, halt in trip.sorted_halts:
                         s[route.id][trip.last_stop.name][halt.stop.stop_id].append(hms)
         self._sched = s
+
+    @property
+    def date(self):
+        return self._for_date
+
+    @property
+    def is_valid_today(self):
+        """ Return True if this schedule is valid for today """
+        now = datetime.utcnow()
+        return self._for_date == date(now.year, now.month, now.day)
 
     def print_schedule(self, route_id):
         """ Print a schedule for a given route """
@@ -788,10 +797,12 @@ def print_next_arrivals(schedule, location, route_id):
 
 
 # When importing this module, initialize its data
+print("Loading Straeto data...")
 BusStop.initialize()
 BusCalendar.initialize()
 BusRoute.initialize()
 BusHalt.initialize()
+print("Straeto data loaded")
 
 
 if __name__ == "__main__":
