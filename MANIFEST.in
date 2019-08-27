@@ -1,0 +1,4 @@
+graft src
+prune src/straeto/__pycache__
+exclude src/straeto/config/status_url.txt
+exclude src/straeto/resources/shapes.txt
