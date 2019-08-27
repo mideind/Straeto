@@ -113,7 +113,7 @@ entf = functools.partial(distance, _MIDEIND_LOCATION)
 
 def locfmt(loc):
     """ Return a (lat, lon) location tuple in a standard string format """
-    return f"({loc[0]:.6f},{loc[1]:.6f})"
+    return "({0:.6f},{1:.6f})".format(loc[0], loc[1])
 
 
 class BusCalendar:
@@ -232,7 +232,10 @@ class BusTrip:
         return BusRoute.lookup(self._route_id)
 
     def __str__(self):
-        return f"{self._id}: {self._headsign} {self._short_name} <{self._direction}>"
+        return (
+            "{0}: {1} {2} <{3}>"
+            .format(self._id, self._headsign, self._short_name, self._direction)
+        )
 
     @staticmethod
     def lookup(trip_id):
@@ -347,8 +350,8 @@ class BusRoute:
 
     def __str__(self):
         return (
-            f"Route {self._id} with {len(self._services)} services, of which "
-            f"{len(self.active_services_today())} are active today"
+            "Route {0} with {1} services, of which {2} are active today"
+            .format(self._id, len(self._services), len(self.active_services_today()))
         )
 
     @property
@@ -443,7 +446,7 @@ class BusStop:
         return BusStop._all_stops_by_name.get(name, [])
 
     def __str__(self):
-        return f"{self._name}"
+        return self._name
 
     @property
     def stop_id(self):
@@ -837,9 +840,8 @@ if __name__ == "__main__":
         # 'Hvar er næsta stoppistöð?'
         print_closest_stop(_MIDEIND_LOCATION)
 
-    if False:
-        # 'Hvenær kemur strætó númer 14?'
-        sched_today = BusSchedule()
+    # 'Hvenær kemur strætó númer 14?'
+    sched_today = BusSchedule()
 
     if False:
         # Examples of queries for next halts of particular routes at particular stops
@@ -855,25 +857,31 @@ if __name__ == "__main__":
     if False:
         # Dump the schedule data for all routes
         for route in BusRoute.all_routes().values():
-            print(f"{route}:")
+            print("{0}:".format(route))
             for service in route.active_services_today():
-                print(f"   service {service.id}")
+                print("   service {0}".format(service.id))
                 for trip in service.trips:
-                    print(f"      trip {trip.id}")
+                    print("      trip {0}".format(trip.id))
                     for hms, halt in trip.sorted_halts:
-                        print(f"         halt {hms[0]:02}:{hms[1]:02}:{hms[2]:02} at {halt.stop.name}")
+                        print(
+                            "         halt {0:02}:{1:02}:{2:02} at {3}"
+                            .format(hms[0], hms[1], hms[2], halt.stop.name)
+                        )
 
     if False:
         # Dump the real-time locations of all buses
         all_buses = Bus.all_buses().items()
         for route_id, val in sorted(all_buses, key=lambda b: b[0].rjust(2)):
             route = BusRoute.lookup(route_id)
-            print(f"{route}:")
+            print("{0}:".format(route))
             for service in route.active_services_today():
-                print(f"   service {service.id}")
+                print("   service {0}".format(service.id))
             for bus in sorted(val, key=lambda bus: entf(bus.location)):
                 print(
-                    f"   location:{locfmt(bus.location)}, head:{bus.heading:>6.2f}, "
-                    f"stop:{bus.stop}, next:{bus.next_stop}, code:{bus.code}, "
-                    f"distance:{entf(bus.location):.2f}"
+                    "   location:{0}, head:{1:>6.2f}, stop:{2}, next:{3}, code:{4}, "
+                    "distance:{5:.2f}"
+                    .format(
+                        locfmt(bus.location), bus.heading, bus.stop,
+                        bus.next_stop, bus.code, entf(bus.location)
+                    )
                 )
