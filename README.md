@@ -12,9 +12,9 @@ is not (yet) located at a fixed, well-known URL.
 
 ```
     import straeto
-    # Your location here
-    location = (lat, lon)
-    s = BusStop.closest_to(location)
+    # Your location here, as a (lat, lon) tuple
+    location = straeto._MIDEIND_LOCATION  # Fiskislóð 31, Reykjavík
+    s = straeto.BusStop.closest_to(location)
     print(f"The bus stop closest to {location} is {s.name}")
     # Load the bus schedule for today
     schedule = straeto.BusSchedule()
