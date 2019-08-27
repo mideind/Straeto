@@ -62,11 +62,8 @@ setup(
     version="0.0.1",
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
-    long_description="{0}\n{1}".format(
-        re.compile("^.. start-badges.*^.. end-badges", re.M | re.S)
-            .sub("", read("README.rst")),
-        re.sub(":[a-z]+:`~?(.*?)`", r"``\1``", read("CHANGELOG.rst")),
-    ),
+    long_description="{0}\n".format(read("README.md")),
+    long_description_content_type="text/markdown",
     author="Miðeind ehf",
     author_email="vt@extrada.com",
     url="https://github.com/mideind/Straeto",
