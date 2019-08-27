@@ -59,7 +59,7 @@ setup(
     name="straeto",
     # Remember to modify version numbers in
     # doc/conf.py and src/straeto/__init__.py as well
-    version="0.0.3",
+    version="0.0.4",
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
     long_description="{0}\n".format(read("README.md")),
