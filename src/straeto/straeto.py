@@ -51,9 +51,15 @@ import requests
 
 
 _THIS_PATH = os.path.dirname(__file__) or "."
-_STATUS_FILE = os.path.join(_THIS_PATH, "resources", "status.xml")
+# Where the URL to fetch bus status data is stored (this is not public information;
+# you must apply to Straeto bs to obtain permission and get your own URL)
 _STATUS_URL_FILE = os.path.join(_THIS_PATH, "config", "status_url.txt")
-_STATUS_URL = open(_STATUS_URL_FILE, "r").read().strip()
+try:
+    _STATUS_URL = open(_STATUS_URL_FILE, "r").read().strip()
+except FileNotFoundError:
+    _STATUS_URL = None
+# Fallback location to fetch status info from, if not available via HTTP
+_STATUS_FILE = os.path.join(_THIS_PATH, "resources", "status.xml")
 _EARTH_RADIUS = 6371.0088  # Earth's radius in km
 _MIDEIND_LOCATION = (64.156896, -21.951200)  # Fiskislóð 31, 101 Reykjavík
 
@@ -403,6 +409,7 @@ class BusStop:
         buses stop on their trips. """
 
     _all_stops = dict()
+    _all_stops_by_name = defaultdict(list)
 
     def __init__(self, stop_id, name, location):
         self._id = stop_id
@@ -415,6 +422,7 @@ class BusStop:
         # indexed by arrival time
         self._halts = dict()
         BusStop._all_stops[stop_id] = self
+        BusStop._all_stops_by_name[name].append(self)
 
     @staticmethod
     def lookup(stop_id):
@@ -428,6 +436,11 @@ class BusStop:
         if not dist:
             return None
         return sorted(dist, key=lambda t:t[0])[0][1]
+
+    @staticmethod
+    def named(name):
+        """ Return all bus stops with the given name """
+        return BusStop._all_stops_by_name.get(name, [])
 
     def __str__(self):
         return f"{self._name}"
@@ -466,8 +479,10 @@ class BusStop:
                 # stop_id,stop_name,stop_lat,stop_lon,location_type
                 f = line.split(",")
                 assert len(f) == 5
+                stop_id = f[0].strip()
+                assert stop_id not in BusStop._all_stops
                 BusStop(
-                    stop_id=f[0].strip(),
+                    stop_id=stop_id,
                     name=f[1].strip(),
                     location=(float(f[2]), float(f[3]))
                 )
@@ -578,10 +593,10 @@ class Bus:
     @staticmethod
     def _fetch_state():
         """ Fetch new state via HTTP """
-        r = requests.get(_STATUS_URL)
+        r = requests.get(_STATUS_URL) if _STATUS_URL else None
         # pylint: disable=no-member
         if r is not None and r.status_code == requests.codes.ok:
-            print(f"Successfully fetched state from {_STATUS_URL}")
+            # print(f"Successfully fetched state from {_STATUS_URL}")
             html_doc = r.text
             return ET.fromstring(html_doc)
         # State not available
@@ -589,8 +604,12 @@ class Bus:
 
     @staticmethod
     def _read_state():
-        print(f"Reading state from {_STATUS_FILE}")
-        return ET.parse(_STATUS_FILE).getroot()
+        """ As a fallback, attempt to read bus real-time data from status file """
+        # print(f"Reading state from {_STATUS_FILE}")
+        try:
+            return ET.parse(_STATUS_FILE).getroot()
+        except FileNotFoundError:
+            return None
 
     @staticmethod
     def _load_state():
@@ -602,6 +621,9 @@ class Bus:
         if root is None:
             # Fall back to reading state from file
             root = Bus._read_state()
+        if root is None:
+            # State is not available
+            return
         for bus in root.findall('bus'):
             ts = bus.get('time')
             ts = datetime(
@@ -714,7 +736,7 @@ class BusSchedule:
             for service in route.active_services(on_date=for_date):
                 for trip in service.trips:
                     for hms, halt in trip.sorted_halts:
-                        s[route.id][trip.last_stop.name][halt.stop.stop_id].append(hms)
+                        s[route.id][trip.last_stop.name][halt.stop.name].append(hms)
         self._sched = s
 
     @property
@@ -734,8 +756,8 @@ class BusSchedule:
         s = self._sched[route_id]
         for direction, halts in s.items():
             print("Átt: {0}".format(direction))
-            for stop_id, times in halts.items():
-                print("   Stöð: {0}".format(BusStop.lookup(stop_id).name))
+            for stop_name, times in halts.items():
+                print("   Stöð: {0}".format(stop_name))
                 col = 0
                 for hms in sorted(times):
                     if col == 8:
@@ -748,7 +770,7 @@ class BusSchedule:
                 print()
         print("\n\n")
 
-    def arrivals(self, route_id, stop_id, after_hms=None):
+    def arrivals(self, route_id, stop_name, after_hms=None):
         """ Return a list of the subsequent arrivals of buses on the
             given route at the indicated stop, with reference to the
             given timepoint, or the current time if None. """
@@ -759,8 +781,8 @@ class BusSchedule:
         # h is a list of halts for each direction
         h = defaultdict(list)
         for direction, halts in s.items():
-            for halt_stop_id, times in halts.items():
-                if halt_stop_id == stop_id:
+            for halt_stop_name, times in halts.items():
+                if halt_stop_name == stop_name:
                     h[direction] += [hms for hms in times if hms >= after_hms]
         for direction, arrival_times in h.items():
             # Return the first two subsequent arrival times
@@ -780,11 +802,16 @@ def print_closest_stop(location):
 
 
 def print_next_arrivals(schedule, location, route_id):
-    """ Answers the query: 'when does bus X arrive?' at a given location """
-    s = BusStop.closest_to(location)
-    print("Bus stop closest to {0} is {1}".format(location, s.name))
-    print("Next arrivals of route {0} are:".format(route_id))
-    for direction, times in schedule.arrivals(route_id, s.stop_id).items():
+    """ Answers the query: 'when does bus X arrive?' at a given location
+        or bus stop name """
+    if isinstance(location, tuple):
+        s = BusStop.closest_to(location)
+        stop_name = s.name
+        print("Bus stop closest to {0} is {1}".format(location, stop_name))
+    else:
+        stop_name = location
+    print("Next arrivals of route {0} at {1} are:".format(route_id, stop_name))
+    for direction, times in schedule.arrivals(route_id, stop_name).items():
         print(
             "   Direction {0}: {1}"
             .format(
@@ -796,27 +823,37 @@ def print_next_arrivals(schedule, location, route_id):
         )
 
 
-# When importing this module, initialize its data
-print("Loading Straeto data...")
+# When importing this module, initialize its data from the text files
+# in the resources/ subdirectory
 BusStop.initialize()
 BusCalendar.initialize()
 BusRoute.initialize()
 BusHalt.initialize()
-print("Straeto data loaded")
 
 
 if __name__ == "__main__":
 
-    # 'Hvar er næsta stoppistöð?'
-    print_closest_stop(_MIDEIND_LOCATION)
-
-    # 'Hvenær kemur strætó númer 14?'
-    sched_today = BusSchedule()
-    print_next_arrivals(sched_today, _MIDEIND_LOCATION, "14")
-
-    sched_today.print_schedule("12")
+    if False:
+        # 'Hvar er næsta stoppistöð?'
+        print_closest_stop(_MIDEIND_LOCATION)
 
     if False:
+        # 'Hvenær kemur strætó númer 14?'
+        sched_today = BusSchedule()
+
+    if False:
+        # Examples of queries for next halts of particular routes at particular stops
+        print_next_arrivals(sched_today, _MIDEIND_LOCATION, "14")
+        print_next_arrivals(sched_today, "Grunnslóð", "14")
+        print_next_arrivals(sched_today, "Grandagarður", "14")
+        print_next_arrivals(sched_today, "Mýrargata", "14")
+
+    if False:
+        # Print today's schedule for a route
+        sched_today.print_schedule("12")
+
+    if False:
+        # Dump the schedule data for all routes
         for route in BusRoute.all_routes().values():
             print(f"{route}:")
             for service in route.active_services_today():
@@ -826,6 +863,8 @@ if __name__ == "__main__":
                     for hms, halt in trip.sorted_halts:
                         print(f"         halt {hms[0]:02}:{hms[1]:02}:{hms[2]:02} at {halt.stop.name}")
 
+    if False:
+        # Dump the real-time locations of all buses
         all_buses = Bus.all_buses().items()
         for route_id, val in sorted(all_buses, key=lambda b: b[0].rjust(2)):
             route = BusRoute.lookup(route_id)
