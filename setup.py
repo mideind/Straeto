@@ -95,5 +95,5 @@ setup(
     ],
     keywords=["bus", "route", "transportation", "iceland"],
     setup_requires=[],
-    install_requires=[],
+    install_requires=["requests>=2.22"],
 )
