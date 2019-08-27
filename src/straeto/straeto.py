@@ -770,7 +770,7 @@ class BusSchedule:
                 print()
         print("\n\n")
 
-    def arrivals(self, route_id, stop_name, after_hms=None):
+    def arrivals(self, route_id, stop_name, *, n=2, after_hms=None):
         """ Return a list of the subsequent arrivals of buses on the
             given route at the indicated stop, with reference to the
             given timepoint, or the current time if None. """
@@ -785,9 +785,9 @@ class BusSchedule:
                 if halt_stop_name == stop_name:
                     h[direction] += [hms for hms in times if hms >= after_hms]
         for direction, arrival_times in h.items():
-            # Return the first two subsequent arrival times
+            # Return the first N subsequent arrival times
             # for each direction
-            h[direction] = sorted(arrival_times)[:2]
+            h[direction] = sorted(arrival_times)[:n]
         return h
 
 

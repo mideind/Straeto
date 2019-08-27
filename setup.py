@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
-
 """
+
     Straeto: A package encapsulating information about buses and bus routes
 
     Setup.py
