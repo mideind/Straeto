@@ -1,6 +1,8 @@
 # Resource files
 src/straeto/resources/status.xml
 src/straeto/resources/shapes.txt
+src/straeto/resources/agency.txt
+src/straeto/resources/*.zip
 src/straeto/config/*.txt
 
 # Byte-compiled / optimized / DLL files
