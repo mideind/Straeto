@@ -63,12 +63,7 @@ package to fetch real-time data.
 
 ## Copyright
 
-*This program is copyright (C) 2019 Miðeind ehf.*
-
-## No Affiliation
-
-This program and its authors are in no way affiliated with or endorsed by
-Strætó bs.
+*This program is copyright &copy; 2019 Miðeind ehf.*
 
 ## License
 
@@ -84,6 +79,11 @@ GNU General Public License for more details.
 
 The full text of the GNU General Public License is available at
 [http://www.gnu.org/licenses/](http://www.gnu.org/licenses/).
+
+## No Affiliation
+
+This program and its authors are in no way affiliated with or endorsed by
+Strætó bs.
 
 ---
 
