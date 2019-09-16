@@ -40,6 +40,7 @@
 """
 
 import os
+import re
 import math
 from datetime import date, datetime
 import threading
@@ -226,6 +227,10 @@ class BusTrip:
     def first_stop(self):
         """ The first BusStop visited on this trip """
         return self._first_stop
+
+    @property
+    def route_id(self):
+        return self._route_id
 
     @property
     def route(self):
@@ -426,6 +431,9 @@ class BusStop:
         self._halts = dict()
         BusStop._all_stops[stop_id] = self
         BusStop._all_stops_by_name[name].append(self)
+        # Dict of routes that visit this stop, with each
+        # value being a set of directions
+        self._visits = defaultdict(set)
 
     @staticmethod
     def lookup(stop_id):
@@ -433,17 +441,42 @@ class BusStop:
         return BusStop._all_stops.get(stop_id)
 
     @staticmethod
-    def closest_to(location):
-        """ Find the bus stop closest to the given location and return it """
-        dist = [(distance(location, stop.location), stop) for stop in BusStop._all_stops.values()]
+    def closest_to(location, n=1, within_radius=None):
+        """ Find the bus stop closest to the given location and return it,
+            or a list of the closest stops if n > 1, but in any case only return
+            stops that are within the given radius (in kilometers). """
+        if n < 1:
+            return None
+        dist = [
+            (distance(location, stop.location), stop)
+            for stop in BusStop._all_stops.values()
+        ]
+        if within_radius is not None:
+            dist = [(d, stop) for d, stop in dist if d <= within_radius]
         if not dist:
             return None
-        return sorted(dist, key=lambda t:t[0])[0][1]
+        # Sort on increasing distance
+        dist = sorted(dist, key=lambda t:t[0])
+        if n == 1:
+            # Only one stop requested: return it
+            return dist[0][1]
+        # More than one stop requested: return a list
+        return [stop for _, stop in dist[0:n]]
 
     @staticmethod
-    def named(name):
+    def named(name, *, fuzzy=False):
         """ Return all bus stops with the given name """
-        return BusStop._all_stops_by_name.get(name, [])
+        stops = BusStop._all_stops_by_name.get(name, [])
+        if not fuzzy:
+            return stops
+        # Continue, this time with fuzzier criteria:
+        # match any stop name containing the given string as a
+        # whole word, using lower case matching
+        nlower = name.lower()
+        for key, val in BusStop._all_stops_by_name.items():
+            if re.search(r"\b" + nlower + r"\b", key.lower()):
+                stops.extend(val)
+        return stops
 
     def __str__(self):
         return self._name
@@ -457,13 +490,29 @@ class BusStop:
         return self._name
 
     @property
+    def visits(self):
+        """ Return the routes that visit this stop, as
+            a dict: { route_id : set(directions) } """
+        return self._visits
+
+    def is_visited_by_route(self, route_id):
+        """ If the given route visits this stop,
+            return a set of directions ('0' and/or '1').
+            Otherwise, return None. """
+        return self._visits.get(route_id)
+
+    @property
     def location(self):
         return self._location
 
     @staticmethod
     def add_halt(stop_id, halt):
         """ Add a halt to this stop, indexed by arrival time """
-        BusStop.lookup(stop_id)._halts[halt.arrival_time] = halt
+        stop = BusStop.lookup(stop_id)
+        assert stop is not None
+        stop._halts[halt.arrival_time] = halt
+        # Note which routes stop here, and in which directions
+        stop._visits[halt.route_id].add(halt.direction)
 
     @staticmethod
     def initialize():
@@ -524,6 +573,14 @@ class BusHalt:
     @property
     def trip(self):
         return BusTrip.lookup(self._trip_id)
+
+    @property
+    def route_id(self):
+        return self.trip.route_id
+
+    @property
+    def direction(self):
+        return self.trip.direction
 
     @staticmethod
     def initialize():
@@ -840,17 +897,17 @@ if __name__ == "__main__":
         # 'Hvar er næsta stoppistöð?'
         print_closest_stop(_MIDEIND_LOCATION)
 
-    # 'Hvenær kemur strætó númer 14?'
     sched_today = BusSchedule()
 
     if False:
         # Examples of queries for next halts of particular routes at particular stops
+        # 'Hvenær kemur strætó númer 14?'
         print_next_arrivals(sched_today, _MIDEIND_LOCATION, "14")
         print_next_arrivals(sched_today, "Grunnslóð", "14")
         print_next_arrivals(sched_today, "Grandagarður", "14")
         print_next_arrivals(sched_today, "Mýrargata", "14")
 
-    if False:
+    if True:
         # Print today's schedule for a route
         sched_today.print_schedule("12")
 
