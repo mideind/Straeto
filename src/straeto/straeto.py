@@ -42,7 +42,7 @@
 import os
 import re
 import math
-from datetime import date, datetime
+from datetime import date, time, datetime, timedelta
 import threading
 import functools
 from collections import defaultdict
@@ -63,6 +63,36 @@ except FileNotFoundError:
 _STATUS_FILE = os.path.join(_THIS_PATH, "resources", "status.xml")
 _EARTH_RADIUS = 6371.0088  # Earth's radius in km
 _MIDEIND_LOCATION = (64.156896, -21.951200)  # Fiskislóð 31, 101 Reykjavík
+
+_VOICE_NAMES = {
+    "Umferðarmiðstöðin (BSÍ)": "Umferðarmiðstöðin",
+    "BSÍ": "Umferðarmiðstöðin",
+    "BSÍ / Landspítalinn": "Umferðarmiðstöðin / Landspítalinn",
+    "KEF - Airport": "Keflavíkurflugvöllur",
+    "10-11": "Tíu ellefu",
+    "Fjölbrautaskóli Suðurnesja / FS": "Fjölbrautaskóli Suðurnesja",
+    "Sauðárkrókur - N1": "Sauðárkrókur - Enn einn",
+    "Þórunnarstræti / MA": "Þórunnarstræti / Menntaskólinn á Akureyri",
+    "Fáskrúðsfjörður / Hafnargata v. Franska sp.": "Fáskrúðsfjörður / Hafnargata við franska spítalann",
+    "Stöðvarfjörður / Brekkan - uppl. miðstöð": "Stöðvarfjörður / Brekkan upplýsingamiðstöð",
+    "Selfoss - N1": "Selfoss - Enn einn",
+    "Selfoss - FSU": "Selfoss - Fjölbrautaskóli Suðurlands",
+    "FSU": "Fjölbrautaskóli Suðurlands",
+    "RÚV": "Útvarpshúsið",
+    "TBR": "Tennis og badmintonfélag Reykjavíkur",
+    "KR": "Knattspyrnufélag Reykjavíkur",
+    "JL húsið": "JL-húsið",
+    "Esjurætur - Hiking Center": "Esjurætur",
+    "LSH / Hringbraut": "Landspítalinn / Hringbraut",
+    "Menntaskólinn í Reykjavík / MR": "MR",
+    "Menntaskólinn við Hamrahlíð / MH": "MH",
+    "Menntaskólinn við Sund / MS": "MS",
+}
+
+# In case of conflict between route numbers, resolve the conflict by
+# looking up areas in the following order (which in practice means that '1'
+# resolves to bus route number 1 in the capital area, not in the east fjords)
+_DEFAULT_AREA_PRIORITY = ("ST", "SU", "VL", "SN", "NO", "RY", "AF")
 
 
 def distance(loc1, loc2):
@@ -178,25 +208,47 @@ class BusTrip:
 
     _all_trips = dict()
 
-    def __init__(self, **kwargs):
-        self._id = kwargs.pop("trip_id")
-        self._route_id = kwargs.pop("route_id")
-        self._headsign = kwargs.pop("headsign")
-        self._short_name = kwargs.pop("short_name")
-        self._direction = kwargs.pop("direction")
-        self._block = kwargs.pop("block")
+    def __init__(self, *, trip_id, route_id, headsign, short_name, direction, block):
+        self._id = trip_id
+        assert "." in route_id
+        self._route_id = route_id
+        self._headsign = headsign
+        self._short_name = short_name
+        self._direction = direction
+        self._block = block
         self._halts = dict()
+        # Set of stop_ids visited on this trip
+        self._stops = set()
+        # Set of tuples: (stop, next_stop) for all consecutive stops on this trip
+        self._consecutive_stops = set()
         # Cache a sorted list of halts and arrival times for this trip
         self._sorted_halts = None
         # Store the first and last stop ids for this trip
         self._first_stop = None
         self._last_stop_seq = 0
         self._last_stop = None
+        # Store the start and end times for this trip, as (h, m, s) tuples
+        self._start_time = None
+        self._end_time = None
         # Accumulate a singleton database of all trips
         BusTrip._all_trips[self._id] = self
 
+    @classmethod
+    def initialize(cls):
+        """ Initialize static data structures, once all trips have been created """
+        for trip in cls._all_trips.values():
+            trip._initialize()
+
+    def _initialize(self):
+        """ Perform initialization after all trips have been created """
+        # Calculate and cache the list of sorted halts, in sequence order
+        h = self._sorted_halts = sorted(self._halts.items(), key=lambda h:h[1].stop_seq)
+        # Collect tuples of consecutive stops
+        for ix in range(len(h) - 1):
+            self._consecutive_stops.add((h[ix][1].stop_id, h[ix + 1][1].stop_id))
+
     @property
-    def id(self):
+    def trip_id(self):
         return self._id
 
     @property
@@ -206,12 +258,55 @@ class BusTrip:
         return self._halts
 
     @property
+    def stops(self):
+        """ Returns a set of stop_ids visited in this trip """
+        return self._stops
+
+    def stops_at(self, stop_id):
+        """ Return True if this trip includes a stop at the given stop """
+        return stop_id in self._stops
+
+    def stops_at_any(self, stop_set):
+        """ Return True if this trip includes any stop from the given set """
+        return bool(self._stops & stop_set)
+
+    @property
     def sorted_halts(self):
-        """ Returns a list of BusHalts on this trip, sorted by arrival time (h:m:s) """
-        # We only calculate the list of sorted halts once, then cache it
-        if self._sorted_halts is None:
-            self._sorted_halts = sorted(self._halts.items(), key=lambda h:h[0])
+        """ Returns a list of BusHalts on this trip, sorted by stop sequence """
+        assert self._sorted_halts is not None
         return self._sorted_halts
+
+    def has_consecutive_stops(self, stop1_id, stop2_id):
+        """ Returns True if the trip includes the two given stops,
+            consecutively """
+        if not stop1_id:
+            return self.stops_at(stop2_id)
+        if not stop2_id:
+            return self.stops_at(stop1_id)
+        return (stop1_id, stop2_id) in self._consecutive_stops
+
+    def following_halt(self, stop_id, base_stop_id):
+        """ Scan the halts on this trip following the one at base_stop_id,
+            looking for stop_id. If found, return the base halt,
+            the next halt after it, and the found halt,
+            or (None, None, None) otherwise. """
+        halts = self._sorted_halts
+        for ix, (_, halt) in enumerate(halts):
+            if base_stop_id == halt.stop_id:
+                # Found the base stop
+                break
+        else:
+            # Did not find the base stop: return None
+            return None, None, None
+        # Scan subsequent halts for a stop that is in the given set
+        ix += 1
+        next_halt = halts[ix][1] if ix < len(halts) else None
+        while ix < len(halts):
+            if stop_id == halts[ix][1].stop_id:
+                # Found it: return the base halt and the found halt
+                return halt, next_halt, halts[ix][1]
+            ix += 1
+        return None, None, None
 
     @property
     def direction(self):
@@ -219,14 +314,24 @@ class BusTrip:
         return self._direction
 
     @property
+    def first_stop(self):
+        """ The first BusStop visited on this trip """
+        return self._first_stop
+
+    @property
     def last_stop(self):
         """ The last BusStop visited on this trip """
         return self._last_stop
 
     @property
-    def first_stop(self):
-        """ The first BusStop visited on this trip """
-        return self._first_stop
+    def start_time(self):
+        """ The start time of this trip """
+        return self._start_time
+
+    @property
+    def end_time(self):
+        """ The end time of this trip """
+        return self._end_time
 
     @property
     def route_id(self):
@@ -250,7 +355,9 @@ class BusTrip:
     def _add_halt(self, halt):
         """ Add a halt to this trip """
         # Index by arrival time
-        self._halts[halt.arrival_time] = halt
+        arrival = halt.arrival_time
+        departure = halt.departure_time
+        self._halts[arrival] = halt
         if halt.stop_seq == 1:
             # This is the first stop in the trip
             self._first_stop = halt.stop
@@ -258,6 +365,13 @@ class BusTrip:
             # This is, so far, the last stop in the trip
             self._last_stop = halt.stop
             self._last_stop_seq = halt.stop_seq
+        # Add the stop_id to the set of visited stops
+        self._stops.add(halt.stop.stop_id)
+        # Note the time span (start and end times) for this trip
+        if self._start_time is None or self._start_time > arrival:
+            self._start_time = arrival
+        if self._end_time is None or self._end_time < departure:
+            self._end_time = departure
 
     @staticmethod
     def add_halt(trip_id, halt):
@@ -288,7 +402,23 @@ class BusService:
         self._weekdays = [
             c != "-" for c in schedule[9:16]
         ]
+        # List of trips, ordered by start time
+        self._ordered_trips = []
+        # Collect all services in a single dict
         BusService._all_services[service_id] = self
+
+    @staticmethod
+    def initialize():
+        """ Complete initialization of services and trips """
+        for service in BusService._all_services.values():
+            service._initialize()
+
+    def _initialize(self):
+        """ Complete initialization of this service """
+        self._ordered_trips = sorted(
+            self._trips.values(),
+            key=lambda trip: trip.start_time
+        )
 
     @staticmethod
     def lookup(service_id):
@@ -296,7 +426,7 @@ class BusService:
         return BusService._all_services.get(service_id) or BusService(service_id)
 
     @property
-    def id(self):
+    def service_id(self):
         return self._id
 
     @property
@@ -319,7 +449,7 @@ class BusService:
 
     def add_trip(self, trip):
         """ Add a trip to this service """
-        self._trips[trip.id] = trip
+        self._trips[trip.trip_id] = trip
 
 
 class BusRoute:
@@ -332,13 +462,18 @@ class BusRoute:
     _all_routes = dict()
 
     def __init__(self, route_id):
+        # We store the long-form route_id, i.e. 'ST.1' for route 1
+        # in the capital area
+        assert "." in route_id
         self._id = route_id
+        self._area, self._number = route_id.split(".", maxsplit=2)
         self._services = dict()
+        assert route_id not in BusRoute._all_routes, "route_id " + route_id + " already exists"
         BusRoute._all_routes[route_id] = self
 
     def add_service(self, service):
         """ Add a service to this route """
-        self._services[service.id] = service
+        self._services[service.service_id] = service
 
     def active_services(self, on_date):
         """ Returns a list of the services on this route
@@ -360,13 +495,42 @@ class BusRoute:
         )
 
     @property
-    def id(self):
+    def number(self):
+        return self._number
+
+    @property
+    def area(self):
+        return self._area
+
+    @property
+    def route_id(self):
         return self._id
 
     @staticmethod
+    def lookup_number(route_number, *, area_priority=_DEFAULT_AREA_PRIORITY):
+        """ Return the route having the given number """
+        assert "." not in route_number
+        for area in area_priority:
+            route_id = area + "." + route_number
+            route = BusRoute._all_routes.get(route_id)
+            if route is not None:
+                return route
+        return None
+
+    @staticmethod
+    def make_id(route_number, *, area_priority=_DEFAULT_AREA_PRIORITY):
+        """ Return the full id for the route having the given number, assuming
+            the indicated area priority """
+        route = BusRoute.lookup_number(route_number, area_priority=area_priority)
+        return None if route is None else route.route_id
+
+    @staticmethod
     def lookup(route_id):
-        """ Return the route having the given identifier """
-        return BusRoute._all_routes.get(route_id) or BusRoute(route_id)
+        """ Return the route having the given full identifier """
+        if route_id is None:
+            return None
+        assert "." in route_id
+        return BusRoute._all_routes.get(route_id)
 
     @staticmethod
     def all_routes():
@@ -392,9 +556,9 @@ class BusRoute:
                 # direction_id,block_id,shape_id
                 f = line.split(",")
                 assert len(f) == 8
-                # Convert 'ST.17' to '17'
-                route_id = f[0].split(".")[1]
-                route = BusRoute.lookup(route_id)
+                # Break 'ST.17' into components area='ST' and number='17'
+                route_id = f[0]
+                route = BusRoute.lookup(route_id) or BusRoute(route_id)
                 # Make a unique service id out of the route id
                 # plus the non-unique service id
                 service = BusService.lookup(route_id + "/" + f[1])
@@ -422,6 +586,8 @@ class BusStop:
     def __init__(self, stop_id, name, location):
         self._id = stop_id
         self._name = name
+        # Search key for this stop: lowercase, no hyphens or slashes
+        self._skey = name.lower().replace("-", " ").replace("/", " ").replace("   ", " ")
         # Location is a tuple of (lat, lon)
         (lat, lon) = self._location = location
         assert -90.0 <= lat <= 90.0
@@ -429,6 +595,7 @@ class BusStop:
         # Maintain a dictionary of halts at this stop,
         # indexed by arrival time
         self._halts = dict()
+        assert stop_id not in BusStop._all_stops
         BusStop._all_stops[stop_id] = self
         BusStop._all_stops_by_name[name].append(self)
         # Dict of routes that visit this stop, with each
@@ -465,18 +632,43 @@ class BusStop:
 
     @staticmethod
     def named(name, *, fuzzy=False):
-        """ Return all bus stops with the given name """
+        """ Return all bus stops with the given name,
+            optionally using fuzzy matching """
         stops = BusStop._all_stops_by_name.get(name, [])
         if not fuzzy:
+            # No fuzzy stuff: we're done
             return stops
         # Continue, this time with fuzzier criteria:
         # match any stop name containing the given string as a
         # whole word, using lower case matching
-        nlower = name.lower()
-        for key, val in BusStop._all_stops_by_name.items():
-            if re.search(r"\b" + nlower + r"\b", key.lower()):
-                stops.extend(val)
-        return stops
+        # Note the stops we already have in the result list
+        stop_ids = set(stop.stop_id for stop in stops)
+        nlower = name.lower().replace("-", " ").replace("   ", " ")
+        for stop_name, stops in BusStop._all_stops_by_name.items():
+            stop = stops[0]
+            match = re.search(r"\b" + nlower + r"\b", stop._skey)
+            if not match:
+                # Try the voice version, if different
+                voice_key = _VOICE_NAMES.get(stop_name)
+                match = (
+                    voice_key is not None
+                    and re.search(r"\b" + nlower + r"\b", voice_key.lower())
+                )
+            if not match:
+                continue
+            stop_ids |= set(stop.stop_id for stop in stops)
+        return [BusStop.lookup(stop_id) for stop_id in stop_ids]
+
+    @staticmethod
+    def sort_by_proximity(stops, location):
+        """ Sort a list of bus stops by increasing distance from the
+            given location """
+        stops.sort(key=lambda stop: distance(location, stop.location))
+
+    @staticmethod
+    def voice(stop_name):
+        """ Return a voice-friendly version of bus stop names """
+        return _VOICE_NAMES.get(stop_name, stop_name)
 
     def __str__(self):
         return self._name
@@ -562,9 +754,26 @@ class BusHalt:
     def arrival_time(self):
         return self._arrival_time
 
+    def time_to(self, halt):
+        """ Return the time, in seconds, between this halt and the given one """
+        if halt is self:
+            return 0
+        today = date.today()
+        t1 = datetime.combine(today, time(*self._arrival_time))
+        t2 = datetime.combine(today, time(*halt._arrival_time))
+        return (t2 - t1).total_seconds()
+
+    @property
+    def departure_time(self):
+        return self._arrival_time  # Not presently implemented
+
     @property
     def stop_seq(self):
         return self._stop_seq
+
+    @property
+    def stop_id(self):
+        return self._stop_id
 
     @property
     def stop(self):
@@ -626,18 +835,22 @@ class Bus:
     _timestamp = None
     _lock = threading.Lock()
 
-    def __init__(self, **kwargs):
-        self._route_id = kwargs.pop("route_id")
-        self._stop = kwargs.pop("stop")
-        self._next_stop = kwargs.pop("next_stop")
+    def __init__(
+        self, *,
+        route_id, stop_id, next_stop_id, location, heading, code, timestamp
+    ):
+        assert "." in route_id
+        self._route_id = route_id
+        self._stop_id = stop_id
+        self._next_stop_id = next_stop_id
         # Location is a tuple of (lat, lon)
-        (lat, lon) = self._location = kwargs.pop("location")
+        (lat, lon) = self._location = location
         assert -90.0 <= lat <= 90.0
         assert -180.0 <= lon <= 180.0
-        self._heading = kwargs.pop("heading")
-        self._code = kwargs.pop("code")
-        self._timestamp = kwargs.pop("timestamp")
-        Bus._all_buses[self._route_id].append(self)
+        self._heading = heading
+        self._code = code
+        self._timestamp = timestamp
+        Bus._all_buses[route_id].append(self)
 
     @staticmethod
     def all_buses():
@@ -647,6 +860,7 @@ class Bus:
 
     @staticmethod
     def buses_on_route(route_id):
+        """ Return all buses currently driving on the indicated route """
         Bus.refresh_state()
         return Bus._all_buses[route_id]
 
@@ -698,14 +912,24 @@ class Bus:
             lon = float(bus.get('lon'))
             heading = float(bus.get('head'))
             route_id = bus.get('route')
-            stop = bus.get('stop')
-            next_stop = bus.get('next')
+            # Convert area indicators
+            # !!! TODO: This needs to be verified further, and the 'SA' area added
+            if route_id.startswith("A"):
+                route_id = "AF." + route_id[1:]
+            elif route_id.startswith("R"):
+                route_id = "RY." + route_id[1:]
+            else:
+                assert route_id[0] in "123456789"
+                # Assume capital area
+                route_id = "ST." + route_id
+            stop_id = bus.get('stop')
+            next_stop_id = bus.get('next')
             code = int(bus.get('code'))
             Bus(
                 route_id=route_id,
                 location=(lat, lon),
-                stop=stop,
-                next_stop=next_stop,
+                stop_id=stop_id,
+                next_stop_id=next_stop_id,
                 heading=heading,
                 code=code,
                 timestamp=ts
@@ -741,12 +965,20 @@ class Bus:
         return self._heading
 
     @property
+    def stop_id(self):
+        return self._stop_id
+
+    @property
+    def next_stop_id(self):
+        return self._next_stop_id
+
+    @property
     def stop(self):
-        return BusStop.lookup(self._stop)
+        return BusStop.lookup(self._stop_id)
 
     @property
     def next_stop(self):
-        return BusStop.lookup(self._next_stop)
+        return BusStop.lookup(self._next_stop_id)
 
     @property
     def timestamp(self):
@@ -773,8 +1005,8 @@ class Bus:
             self._route_id,
             self._location,
             self._heading,
-            BusStop.lookup(self._stop),
-            BusStop.lookup(self._next_stop),
+            self.stop,
+            self.next_stop,
             self._code,
             self._timestamp,
         )
@@ -796,7 +1028,7 @@ class BusSchedule:
             for service in route.active_services(on_date=for_date):
                 for trip in service.trips:
                     for hms, halt in trip.sorted_halts:
-                        s[route.id][trip.last_stop.name][halt.stop.name].append(hms)
+                        s[route.route_id][trip.last_stop.name][halt.stop.name].append(hms)
         self._sched = s
 
     @property
@@ -830,25 +1062,233 @@ class BusSchedule:
                 print()
         print("\n\n")
 
-    def arrivals(self, route_id, stop_name, *, n=2, after_hms=None):
+    def arrivals(
+        self, route_number, stop, *,
+        n=2, after_hms=None, area_priority=_DEFAULT_AREA_PRIORITY
+    ):
         """ Return a list of the subsequent arrivals of buses on the
             given route at the indicated stop, with reference to the
-            given timepoint, or the current time if None. """
+            given timepoint, or the current time if None. Also returns
+            a boolean indicating whether the bus arrives at all at this
+            stop today. """
+        # h is a list of halts for each direction
+        h = defaultdict(list)
+        route_id = BusRoute.make_id(route_number, area_priority=area_priority)
+        arrives = False
+        if route_id is None:
+            return h, arrives
         if after_hms is None:
             now = datetime.utcnow()
             after_hms = (now.hour, now.minute, now.second)
         s = self._sched[route_id]
-        # h is a list of halts for each direction
-        h = defaultdict(list)
         for direction, halts in s.items():
             for halt_stop_name, times in halts.items():
-                if halt_stop_name == stop_name:
-                    h[direction] += [hms for hms in times if hms >= after_hms]
+                if halt_stop_name == stop.name:
+                    # Note that the bus arrives at some point today,
+                    # according to the schedule
+                    arrives = True
+                    # Don't include halts at final stops in the direction
+                    # of that same stop
+                    if halt_stop_name != direction:
+                        # Only include halts that occcur after the requested time
+                        hlist = [hms for hms in times if hms >= after_hms]
+                        if hlist:
+                            h[direction] += hlist
         for direction, arrival_times in h.items():
             # Return the first N subsequent arrival times
             # for each direction
             h[direction] = sorted(arrival_times)[:n]
-        return h
+        return h, arrives
+
+    def predicted_arrival(
+        self, route_number, stop, *, area_priority=_DEFAULT_AREA_PRIORITY
+    ):
+        """ Predicts when the next bus will arrive on route route_id
+            at stop stop_name. """
+
+        # The function attempts to predict the arrival time, at a particular
+        # stop, of the next bus on a given route. It does so by inference from
+        # the real-time data available from straeto.is about bus positions and
+        # movements. The data includes the last (lat, lon) location of the bus,
+        # the last stop visited, the next stop to be visited, and the route the bus
+        # is on, among other things. The challenge is to reconcile this data
+        # with the bus schedule to find out which trip the bus is likely to be on,
+        # and from there to infer a likely arrival time as a sum of the time
+        # left on the current segment (last stop -> next stop) plus the time
+        # it will take to drive from the next stop to the stop being queried,
+        # according to the schedule. We thus assume that the bus will neither be
+        # further delayed, nor make up for previous delays, when driving the
+        # distance from its next stop to the queried stop.
+
+        route_id = BusRoute.make_id(route_number, area_priority=area_priority)
+        route = BusRoute.lookup(route_id)
+        if route is None:
+            return None
+
+        # Establish the current time in h:m:s format
+        now = datetime.utcnow()
+        today = date.today()
+        after_hms = (now.hour, now.minute, now.second)
+        # Find the trip that is closest to the current time
+        closest_trip = dict()
+        closest_gap = dict()
+
+        def gap(trip):
+
+            def diff(hms1, hms2):
+                """ Return the number of seconds between the two (h, m, s) tuples """
+                if hms1[0] >= 24:
+                    # Apparently, some arrival times can exceed 23 hours,
+                    # so we must account for that (since Python doesn't)
+                    t1 = datetime.combine(
+                        today + timedelta(days=1),
+                        time(hms1[0] - 24, hms1[1], hms1[2])
+                    )
+                else:
+                    t1 = datetime.combine(today, time(*hms1))
+                if hms2[0] >= 24:
+                    t2 = datetime.combine(
+                        today + timedelta(days=1),
+                        time(hms2[0] - 24, hms2[1], hms2[2])
+                    )
+                else:
+                    t2 = datetime.combine(today, time(*hms2))
+                return (t2 - t1).total_seconds()
+
+            if trip.start_time > after_hms:
+                # The trip has not yet started: we won't use it as a basis
+                # for prediction, since it is possible that a bus may start
+                # the trip at the correct time even if it doesn't show up in
+                # the real-time data
+                return -1
+            elif trip.end_time < after_hms:
+                # The trip should be already completed, but we include it
+                # anyway, since we may have late buses still on it
+                return diff(trip.end_time, after_hms)
+            # The trip is underway
+            return 0
+
+        for service in route.active_services_today():
+            for trip in service.trips:
+                # Only include trips that stop at the queried stop(s)
+                if trip.stops_at(stop.stop_id):
+                    g = gap(trip)
+                    if g >= 0:
+                        cg = closest_gap.get(trip.direction)
+                        if cg is None or g < cg:
+                            # This trip is closer to the current time
+                            closest_gap[trip.direction] = g
+                            closest_trip[trip.direction] = trip
+
+        # If there are no trips to match the buses with, give up
+        if not closest_trip:
+            return None
+
+        # Now, we have a list of trips that stop at the queried stop
+        # and that are undertaken immediately before or during
+        # the current time. The list contains both trip directions.
+        # The next step is to fetch the real-time status of all buses
+        # on the requested route.
+        trips = list(closest_trip.values())
+        buses = Bus.buses_on_route(route_id)
+        result = dict()
+        for bus in buses:
+            # For each currently active bus, find the trips that are in
+            # a direction that matches its last and next stops, and that
+            # will subsequently stop at the queried stop.
+            bus_stop_tuple = (bus.stop_id, bus.next_stop_id)
+            bus_stop = BusStop.lookup(bus.stop_id)
+            next_stop = BusStop.lookup(bus.next_stop_id)
+            # Calculate the distance between the last stop and the next
+            # stop of the bus, as the crow flies
+            if bus_stop is not None and next_stop is not None:
+                d_stops = distance(bus_stop.location, next_stop.location)
+            else:
+                d_stops = 0.0
+            # Calculate the distance between the bus and the next stop,
+            # as the crow flies
+            if next_stop is not None:
+                d_bus = distance(bus.location, next_stop.location)
+            else:
+                d_bus = 0.0
+            # Approximate the time it would take for the bus to drive
+            # from its current location to the next stop, as a ratio
+            # of the total scheduled time between the stops
+            if d_stops < 0.001:
+                # The stops are very close to each other:
+                # assume the time to go between them is zero
+                d_ratio = 0.0
+            else:
+                # The ratio can never be larger than 1.0
+                d_ratio = min(d_bus / d_stops, 1.0)
+            for trip in trips:
+                # Check whether this trip includes stops that match the
+                # last and next stops of the bus
+                if not trip.has_consecutive_stops(*bus_stop_tuple):
+                    continue
+                # Check whether the stop we want is a subsequent stop for the bus
+                last_halt, next_halt, our_halt = trip.following_halt(
+                    stop.stop_id, bus.stop_id
+                )
+                if our_halt is None:
+                    continue
+                # For this trip, we now have the halt that matches the last stop
+                # of the bus, as well as the halt at the queried stop.
+                journey_time = (
+                    last_halt.time_to(next_halt) * d_ratio +
+                    next_halt.time_to(our_halt)
+                )
+                estimated_arrival = bus.timestamp + timedelta(seconds=journey_time)
+                if estimated_arrival < now:
+                    # This bus is estimated to have already arrived and left
+                    continue
+                # We have a potentially usable result: if the arrival is closer than
+                # the previously stored one (if any), we accept it
+                print(
+                    "Predicting that the bus at ({0:.6f}, {1:.6f}) will take "
+                    "{2:.1f} seconds to drive from {3} to {4}, and then "
+                    "{5:.1f} seconds from there to {6}, arriving at {7}"
+                    .format(
+                        *bus.location, last_halt.time_to(next_halt) * d_ratio,
+                        last_halt.stop.name, next_halt.stop.name,
+                        next_halt.time_to(our_halt), our_halt.stop.name,
+                        estimated_arrival
+                    )
+                )
+                direction = trip.last_stop.name
+                if direction not in result or estimated_arrival < result[direction]:
+                    result[direction] = estimated_arrival
+
+        if not result:
+            return None
+
+        def round_to_hh_mm(ts, round_down=False):
+            """ Round a timestamp to a (h, m, s) tuple of the form hh:mm:00 """
+            h, m, s = ts.hour, ts.minute, ts.second
+            if round_down:
+                # Always round down
+                s = 0
+            elif s > 30 or (s == 30 and (m % 2)):
+                # Round up, or to an even number of minutes if seconds == 30
+                s = 0
+                m += 1
+                if m == 60:
+                    m = 0
+                    h += 1
+                    if h == 24:
+                        h = 0
+            return h, m, s
+
+        # The result dict is compatible with BusSchedule.arrivals(),
+        # and contains entries for directions where each entry has a list of hms tuples
+        # (in this case only one hms tuple for each direction)
+
+        # Note: we round the arrival time down, so 17:35:50 becomes 17:35:00 -
+        # this is to reduce the risk of missing the bus!
+        return {
+            direction: [round_to_hh_mm(ts, round_down=True)]
+            for direction, ts in result.items()
+        }
 
 
 def print_closest_stop(location):
@@ -861,17 +1301,22 @@ def print_closest_stop(location):
     )
 
 
-def print_next_arrivals(schedule, location, route_id):
+def print_next_arrivals(schedule, location, route_number):
     """ Answers the query: 'when does bus X arrive?' at a given location
         or bus stop name """
     if isinstance(location, tuple):
-        s = BusStop.closest_to(location)
-        stop_name = s.name
-        print("Bus stop closest to {0} is {1}".format(location, stop_name))
+        stop = BusStop.closest_to(location)
+        print("Bus stop closest to {0} is {1}".format(location, stop.name))
     else:
-        stop_name = location
-    print("Next arrivals of route {0} at {1} are:".format(route_id, stop_name))
-    for direction, times in schedule.arrivals(route_id, stop_name).items():
+        assert isinstance(location, str)
+        stops = BusStop.named(location, fuzzy=True)
+        stop = stops[0] if stops else None
+        if stop is None:
+            print("Can't find a bus stop named {0}".format(location))
+            return
+    print("Next arrivals of route {0} at {1} are:".format(route_number, stop.name))
+    arrivals, _ = schedule.arrivals(route_number, stop)
+    for direction, times in arrivals.items():
         print(
             "   Direction {0}: {1}"
             .format(
@@ -881,6 +1326,27 @@ def print_next_arrivals(schedule, location, route_id):
                 )
             )
         )
+    p = schedule.predicted_arrival(route_number, stop)
+    if p is None:
+        print(
+            "Unable to predict the next arrival of route {0} at {1}"
+            .format(route_number, stop.name)
+        )
+    else:
+        print(
+            "Next predicted arrival of route {0} at {1} is:"
+            .format(route_number, stop.name)
+        )
+        for direction, times in p.items():
+            print(
+                "   Direction {0}: {1}"
+                .format(
+                    direction,
+                    ", ".join(
+                        "{0:02}:{1:02}".format(hms[0], hms[1]) for hms in times
+                    )
+                )
+            )
 
 
 # When importing this module, initialize its data from the text files
@@ -889,6 +1355,8 @@ BusStop.initialize()
 BusCalendar.initialize()
 BusRoute.initialize()
 BusHalt.initialize()
+BusTrip.initialize()
+BusService.initialize()
 
 
 if __name__ == "__main__":
@@ -909,36 +1377,39 @@ if __name__ == "__main__":
 
     if True:
         # Print today's schedule for a route
-        sched_today.print_schedule("12")
+        sched_today.print_schedule("ST.12")
 
     if False:
         # Dump the schedule data for all routes
         for route in BusRoute.all_routes().values():
             print("{0}:".format(route))
             for service in route.active_services_today():
-                print("   service {0}".format(service.id))
+                print("   service {0}".format(service.service_id))
                 for trip in service.trips:
-                    print("      trip {0}".format(trip.id))
+                    print("      trip {0}".format(trip.trip_id))
                     for hms, halt in trip.sorted_halts:
                         print(
                             "         halt {0:02}:{1:02}:{2:02} at {3}"
                             .format(hms[0], hms[1], hms[2], halt.stop.name)
                         )
 
-    if False:
+    if True:
         # Dump the real-time locations of all buses
-        all_buses = Bus.all_buses().items()
+        # all_buses = Bus.all_buses().items()
+        all_buses = [("ST.14", Bus.buses_on_route("ST.14"))]
         for route_id, val in sorted(all_buses, key=lambda b: b[0].rjust(2)):
             route = BusRoute.lookup(route_id)
             print("{0}:".format(route))
             for service in route.active_services_today():
-                print("   service {0}".format(service.id))
+                print("   service {0}".format(service.service_id))
             for bus in sorted(val, key=lambda bus: entf(bus.location)):
                 print(
-                    "   location:{0}, head:{1:>6.2f}, stop:{2}, next:{3}, code:{4}, "
-                    "distance:{5:.2f}"
+                    "   {6} loc:{0}, head:{1:>6.2f}, stop:{2}, next:{3}, code:{4}, "
+                    "dist:{5:.2f}"
                     .format(
                         locfmt(bus.location), bus.heading, bus.stop,
-                        bus.next_stop, bus.code, entf(bus.location)
+                        bus.next_stop, bus.code, entf(bus.location), bus.timestamp
                     )
                 )
+
+        print_next_arrivals(sched_today, _MIDEIND_LOCATION, "14")
