@@ -147,6 +147,24 @@ def locfmt(loc):
     return "({0:.6f},{1:.6f})".format(loc[0], loc[1])
 
 
+def round_to_hh_mm(ts, round_down=False):
+    """ Round a timestamp to a (h, m, s) tuple of the form hh:mm:00 """
+    h, m, s = ts.hour, ts.minute, ts.second
+    if round_down:
+        # Always round down
+        s = 0
+    elif s > 30 or (s == 30 and (m % 2)):
+        # Round up, or to an even number of minutes if seconds == 30
+        s = 0
+        m += 1
+        if m >= 60:
+            m -= 60
+            h += 1
+            if h >= 24:
+                h -= 24
+    return h, m, s
+
+
 class BusCalendar:
 
     """ This class contains a mapping from dates to the BusServices that
@@ -1261,23 +1279,6 @@ class BusSchedule:
 
         if not result:
             return None
-
-        def round_to_hh_mm(ts, round_down=False):
-            """ Round a timestamp to a (h, m, s) tuple of the form hh:mm:00 """
-            h, m, s = ts.hour, ts.minute, ts.second
-            if round_down:
-                # Always round down
-                s = 0
-            elif s > 30 or (s == 30 and (m % 2)):
-                # Round up, or to an even number of minutes if seconds == 30
-                s = 0
-                m += 1
-                if m == 60:
-                    m = 0
-                    h += 1
-                    if h == 24:
-                        h = 0
-            return h, m, s
 
         # The result dict is compatible with BusSchedule.arrivals(),
         # and contains entries for directions where each entry has a list of hms tuples
