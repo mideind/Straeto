@@ -59,6 +59,8 @@ try:
     _STATUS_URL = open(_STATUS_URL_FILE, "r").read().strip()
 except FileNotFoundError:
     _STATUS_URL = None
+# Real-time status refresh interval
+_REFRESH_INTERVAL = 60
 # Fallback location to fetch status info from, if not available via HTTP
 _STATUS_FILE = os.path.join(_THIS_PATH, "resources", "status.xml")
 _EARTH_RADIUS = 6371.0088  # Earth's radius in km
@@ -960,9 +962,9 @@ class Bus:
         with Bus._lock:
             if Bus._timestamp is not None:
                 delta = datetime.utcnow() - Bus._timestamp
-                if delta.total_seconds() < 60:
+                if delta.total_seconds() < _REFRESH_INTERVAL:
                     # The state that we already have is less than
-                    # a minute old: no need to refresh
+                    # _REFRESH_INTERVAL seconds old: no need to refresh
                     return
             Bus._load_state()
 
