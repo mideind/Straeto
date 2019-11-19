@@ -33,16 +33,21 @@ schedule = straeto.BusSchedule()
 # Your route identifier here
 route_id = "14"
 # Print the next two arrivals of that route at the closest bus stop
-for direction, times in schedule.arrivals(route_id, s.name, n=2).items():
-    print(
-        "Direction {0}: {1}"
-        .format(
-            direction,
-            ", ".join(
-                "{0:02}:{1:02}".format(hms[0], hms[1]) for hms in times
+arrivals, arrives = schedule.arrivals(route_id, s, n=2)
+if not arrives:
+    # This stop is not in the schedule for this route
+    print("The bus does not stop at {0}".format(s.name))
+else:
+    for direction, times in arrivals.items():
+        print(
+            "Direction {0}: {1}"
+            .format(
+                direction,
+                ", ".join(
+                    "{0:02}:{1:02}".format(hms[0], hms[1]) for hms in times
+                )
             )
         )
-    )
 ```
 
 ## Documentation
