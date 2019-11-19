@@ -56,7 +56,7 @@ _THIS_PATH = os.path.dirname(__file__) or "."
 # you must apply to Straeto bs to obtain permission and get your own URL)
 _STATUS_URL_FILE = os.path.join(_THIS_PATH, "config", "status_url.txt")
 try:
-    _STATUS_URL = open(_STATUS_URL_FILE, "r").read().strip()
+    _STATUS_URL = open(_STATUS_URL_FILE, "r", encoding="utf-8").read().strip()
 except FileNotFoundError:
     _STATUS_URL = None
 # Real-time status refresh interval
@@ -194,6 +194,7 @@ class BusCalendar:
         with open(
             os.path.join(_THIS_PATH, "resources", "calendar_dates.txt"),
             "r",
+            encoding="utf-8",
         ) as f:
             index = 0
             for line in f:
@@ -561,7 +562,7 @@ class BusRoute:
     def initialize():
         """ Read information about bus routes from the trips.txt file """
         BusRoute._all_routes = dict()
-        with open(os.path.join(_THIS_PATH, "resources", "trips.txt"), "r") as f:
+        with open(os.path.join(_THIS_PATH, "resources", "trips.txt"), "r", encoding="utf-8") as f:
             index = 0
             for line in f:
                 index += 1
@@ -729,7 +730,7 @@ class BusStop:
     @staticmethod
     def initialize():
         """ Read information about bus stops from the stops.txt file """
-        with open(os.path.join(_THIS_PATH, "resources", "stops.txt"), "r") as f:
+        with open(os.path.join(_THIS_PATH, "resources", "stops.txt"), "r", encoding="utf-8") as f:
             index = 0
             for line in f:
                 index += 1
@@ -819,7 +820,7 @@ class BusHalt:
             """ Convert a hh:mm:ss string to a (h, m, s) tuple """
             return (int(s[0:2]), int(s[3:5]), int(s[6:8]))
 
-        with open(os.path.join(_THIS_PATH, "resources", "stop_times.txt"), "r") as f:
+        with open(os.path.join(_THIS_PATH, "resources", "stop_times.txt"), "r", encoding="utf-8") as f:
             index = 0
             for line in f:
                 index += 1
