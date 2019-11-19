@@ -51,6 +51,9 @@ import xml.etree.ElementTree as ET
 import requests
 
 
+# Set _DEBUG to True to emit diagnostic messages
+_DEBUG = False
+
 _THIS_PATH = os.path.dirname(__file__) or "."
 # Where the URL to fetch bus status data is stored (this is not public information;
 # you must apply to Straeto bs to obtain permission and get your own URL)
@@ -1265,17 +1268,18 @@ class BusSchedule:
                     continue
                 # We have a potentially usable result: if the arrival is closer than
                 # the previously stored one (if any), we accept it
-                print(
-                    "Predicting that the bus at ({0:.6f}, {1:.6f}) will take "
-                    "{2:.1f} seconds to drive from {3} to {4}, and then "
-                    "{5:.1f} seconds from there to {6}, arriving at {7}"
-                    .format(
-                        *bus.location, last_halt.time_to(next_halt) * d_ratio,
-                        last_halt.stop.name, next_halt.stop.name,
-                        next_halt.time_to(our_halt), our_halt.stop.name,
-                        estimated_arrival
+                if _DEBUG:
+                    print(
+                        "Predicting that the bus at ({0:.6f}, {1:.6f}) will take "
+                        "{2:.1f} seconds to drive from {3} to {4}, and then "
+                        "{5:.1f} seconds from there to {6}, arriving at {7}"
+                        .format(
+                            *bus.location, last_halt.time_to(next_halt) * d_ratio,
+                            last_halt.stop.name, next_halt.stop.name,
+                            next_halt.time_to(our_halt), our_halt.stop.name,
+                            estimated_arrival
+                        )
                     )
-                )
                 direction = trip.last_stop.name
                 if direction not in result or estimated_arrival < result[direction]:
                     result[direction] = estimated_arrival
@@ -1364,6 +1368,9 @@ BusService.initialize()
 
 
 if __name__ == "__main__":
+
+    # This main program contains a mix of test and demo cases.
+    # Normally you use Straeto as a module through import, not as a main program.
 
     if False:
         # 'Hvar er næsta stoppistöð?'

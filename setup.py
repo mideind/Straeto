@@ -58,13 +58,13 @@ def read(*names, **kwargs):
 setup(
     name="straeto",
     # Remember to modify version number in src/straeto/__init__.py as well
-    version="0.0.7",
+    version="0.0.8",
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
     long_description="{0}\n".format(read("README.md")),
     long_description_content_type="text/markdown",
     author="Miðeind ehf",
-    author_email="vt@extrada.com",
+    author_email="mideind@mideind.is",
     url="https://github.com/mideind/Straeto",
     packages=find_packages("src"),
     package_dir={"": "src"},
