@@ -1,6 +1,6 @@
 graft src
 prune src/straeto/__pycache__
-recursive-exclude src/straeto/resources status_url.txt
+recursive-exclude src/straeto/config status_url.txt
 recursive-exclude src/straeto/resources shapes.txt
 recursive-exclude src/straeto/resources status.xml
 recursive-exclude src/straeto/resources *.zip

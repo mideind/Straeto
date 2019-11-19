@@ -1,7 +1,7 @@
 
 # Straeto
 
-Straeto is a Python 3.x package encapsulating data about buses and bus
+**Straeto** is a Python 3.x package encapsulating data about buses and bus
 routes of Strætó bs, an Icelandic municipal bus service.
 
 The data is fetched from the public [straeto.is website](https://straeto.is),
@@ -60,6 +60,13 @@ provided by Strætó bs.  However, these URLs are not public and you need to sig
 an agreement with Strætó to get access to the data and obtain your own URL. Once you
 have your URL, put it in the file `config/status_url.txt` to enable the Straeto
 package to fetch real-time data.
+
+## Release history
+
+* Release **0.0.10**
+
+    Better support for Windows with explicit specification of UTF-8 encoding
+    for files
 
 ## Copyright
 
