@@ -834,17 +834,16 @@ class BusHalt:
                 if not line:
                     continue
                 # Format is:
-                # trip_id,arrival_time,departure_time,stop_id,stop_sequence,stop_headsign,pickup_type
+                # trip_id,arrival_time,departure_time,stop_id,stop_sequence,stop_headsign
                 f = line.split(",")
-                assert len(f) == 7
+                assert len(f) == 6
                 BusHalt(
                     f[0].strip(),  # trip_id
                     to_hms(f[1].strip()),  # arrival_time
                     # to_hms(f[2].strip()),  # departure_time
                     f[3].strip(),  # stop_id
                     int(f[4]),  # stop_sequence
-                    # Ignore stop_headsign (seems to be always empty)
-                    # f[6].strip(),  # pickup_type
+                    # Ignore stop_headsign
                 )
 
 
@@ -894,7 +893,6 @@ class Bus:
         r = requests.get(_STATUS_URL) if _STATUS_URL else None
         # pylint: disable=no-member
         if r is not None and r.status_code == requests.codes.ok:
-            # print(f"Successfully fetched state from {_STATUS_URL}")
             html_doc = r.text
             return ET.fromstring(html_doc)
         # State not available
@@ -903,7 +901,6 @@ class Bus:
     @staticmethod
     def _read_state():
         """ As a fallback, attempt to read bus real-time data from status file """
-        # print(f"Reading state from {_STATUS_FILE}")
         try:
             return ET.parse(_STATUS_FILE).getroot()
         except FileNotFoundError:
