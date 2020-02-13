@@ -58,7 +58,7 @@ def read(*names, **kwargs):
 setup(
     name="straeto",
     # Remember to modify version number in src/straeto/__init__.py as well
-    version="0.0.11",
+    version="1.0.0",
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
     long_description="{0}\n".format(read("README.md")),
@@ -73,7 +73,7 @@ setup(
     zip_safe=True,
     classifiers=[
         # complete classifier list: http://pypi.python.org/pypi?%3Aaction=list_classifiers
-        "Development Status :: 3 - Alpha",
+        "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "Operating System :: Unix",

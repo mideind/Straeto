@@ -4,9 +4,11 @@
 **Straeto** is a Python 3.x package encapsulating data about buses and bus
 routes of Strætó bs, an Icelandic municipal bus service.
 
-The data is fetched from the public [straeto.is website](https://straeto.is),
-where it is stored in a file called `GTFS.zip`. Unfortunately, that file
-is not (yet) located at a fixed, well-known URL.
+The data is fetched from an open data file released by
+Strætó bs called [`GTFS.zip`](http://opendata.straeto.is/data/gtfs/gtfs.zip).
+This file is large, doesn't change often and should not
+be fetched frequently or frivolously.
+The Straeto package downloads it at most once every 24 hours.
 
 ## Installation
 
@@ -75,7 +77,7 @@ package to fetch real-time data.
 
 ## Copyright
 
-*This program is copyright &copy; 2019 Miðeind ehf.*
+*This program is copyright &copy; 2020 Miðeind ehf.*
 
 ## License
 
@@ -94,11 +96,12 @@ The full text of the GNU General Public License is available at
 
 ## No Affiliation
 
-This program and its authors are in no way affiliated with or endorsed by
-Strætó bs.
+This program and its authors are in no way affiliated with
+or endorsed by Strætó bs.
 
 ---
 
 *If you would like to use this software in ways that are incompatible*
 *with the standard GNU GPLv3 license, please contact Miðeind ehf.*
+*at [mideind@mideind.is](mailto:mideind@mideind.is)*
 *to negotiate alternative arrangements.*

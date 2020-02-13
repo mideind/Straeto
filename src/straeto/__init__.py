@@ -35,6 +35,8 @@ from .straeto import (
     BusHalt,
     distance,
     locfmt,
+    refresh,
+    initialize,
 )
 
 # Debugging
@@ -45,7 +47,6 @@ from .straeto import (
 )
 
 __author__ = "Miðeind ehf."
-__copyright__ = "(C) 2019 Miðeind ehf."
+__copyright__ = "(C) 2020 Miðeind ehf."
 # Remember to update the version in setup.py as well
-__version__ = "0.0.11"
-
+__version__ = "1.0.0"

@@ -2,7 +2,7 @@
 
     straeto.py: A package encapsulating information about Icelandic buses and bus routes
 
-    Copyright (c) 2019 Miðeind ehf.
+    Copyright (c) 2020 Miðeind ehf.
     Original author: Vilhjálmur Þorsteinsson
 
        This program is free software: you can redistribute it and/or modify
@@ -47,25 +47,43 @@ import threading
 import functools
 from collections import defaultdict
 import xml.etree.ElementTree as ET
+import logging
 
 import requests
+import shutil
+import zipfile
 
 
 # Set _DEBUG to True to emit diagnostic messages
 _DEBUG = False
 
 _THIS_PATH = os.path.dirname(__file__) or "."
+
+_RESOURCES_PATH = functools.partial(os.path.join, _THIS_PATH, "resources")
+_CONFIG_PATH = functools.partial(os.path.join, _THIS_PATH, "config")
+
+# The URL of the ZIPped schedule file
+_SCHEDULE_URL = "http://opendata.straeto.is/data/gtfs/gtfs.zip"
+
+# The local copy of the ZIPped schedule file
+_GTFS_PATH = _RESOURCES_PATH("gtfs.zip")
+
 # Where the URL to fetch bus status data is stored (this is not public information;
 # you must apply to Straeto bs to obtain permission and get your own URL)
-_STATUS_URL_FILE = os.path.join(_THIS_PATH, "config", "status_url.txt")
+_STATUS_URL_FILE = _CONFIG_PATH("status_url.txt")
+
 try:
     _STATUS_URL = open(_STATUS_URL_FILE, "r", encoding="utf-8").read().strip()
 except FileNotFoundError:
+    logging.warning("Unable to read '{0}'".format(_STATUS_URL_FILE))
     _STATUS_URL = None
+
 # Real-time status refresh interval
 _REFRESH_INTERVAL = 60
+
 # Fallback location to fetch status info from, if not available via HTTP
-_STATUS_FILE = os.path.join(_THIS_PATH, "resources", "status.xml")
+_STATUS_FILE = _RESOURCES_PATH("status.xml")
+
 _EARTH_RADIUS = 6371.0088  # Earth's radius in km
 _MIDEIND_LOCATION = (64.156896, -21.951200)  # Fiskislóð 31, 101 Reykjavík
 
@@ -135,9 +153,8 @@ def distance(loc1, loc2):
     slat = math.sin(dlat / 2)
     slon = math.sin(dlon / 2)
     a = (
-        slat * slat +
-        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-        slon * slon
+        slat * slat
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * slon * slon
     )
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return _EARTH_RADIUS * c
@@ -194,11 +211,7 @@ class BusCalendar:
         """ Read information about the service calendar from
             the calendar_dates.txt file """
         BusCalendar._calendar = defaultdict(set)
-        with open(
-            os.path.join(_THIS_PATH, "resources", "calendar_dates.txt"),
-            "r",
-            encoding="utf-8",
-        ) as f:
+        with open(_RESOURCES_PATH("calendar_dates.txt"), "r", encoding="utf-8",) as f:
             index = 0
             for line in f:
                 index += 1
@@ -258,6 +271,11 @@ class BusTrip:
         BusTrip._all_trips[self._id] = self
 
     @classmethod
+    def clear(cls):
+        """ Clear all trips """
+        cls._all_trips = dict()
+
+    @classmethod
     def initialize(cls):
         """ Initialize static data structures, once all trips have been created """
         for trip in cls._all_trips.values():
@@ -266,7 +284,9 @@ class BusTrip:
     def _initialize(self):
         """ Perform initialization after all trips have been created """
         # Calculate and cache the list of sorted halts, in sequence order
-        h = self._sorted_halts = sorted(self._halts.items(), key=lambda h:h[1].stop_seq)
+        h = self._sorted_halts = sorted(
+            self._halts.items(), key=lambda h: h[1].stop_seq
+        )
         # Collect tuples of consecutive stops
         for ix in range(len(h) - 1):
             self._consecutive_stops.add((h[ix][1].stop_id, h[ix + 1][1].stop_id))
@@ -366,9 +386,8 @@ class BusTrip:
         return BusRoute.lookup(self._route_id)
 
     def __str__(self):
-        return (
-            "{0}: {1} {2} <{3}>"
-            .format(self._id, self._headsign, self._short_name, self._direction)
+        return "{0}: {1} {2} <{3}>".format(
+            self._id, self._headsign, self._short_name, self._direction
         )
 
     @staticmethod
@@ -417,19 +436,20 @@ class BusService:
         self._service = schedule = service_id.split("/")[1]
         # Decode year, month, date
         self._valid_from = date(
-            int(schedule[0:4]),
-            int(schedule[4:6]),
-            int(schedule[6:8]),
+            int(schedule[0:4]), int(schedule[4:6]), int(schedule[6:8]),
         )
         # Decode weekday validity of service,
         # M T W T F S S
-        self._weekdays = [
-            c != "-" for c in schedule[9:16]
-        ]
+        self._weekdays = [c != "-" for c in schedule[9:16]]
         # List of trips, ordered by start time
         self._ordered_trips = []
         # Collect all services in a single dict
         BusService._all_services[service_id] = self
+
+    @staticmethod
+    def clear():
+        """ Clear all services """
+        BusService._all_services = dict()
 
     @staticmethod
     def initialize():
@@ -440,8 +460,7 @@ class BusService:
     def _initialize(self):
         """ Complete initialization of this service """
         self._ordered_trips = sorted(
-            self._trips.values(),
-            key=lambda trip: trip.start_time
+            self._trips.values(), key=lambda trip: trip.start_time
         )
 
     @staticmethod
@@ -463,7 +482,8 @@ class BusService:
         return (
             # self._valid_from <= on_date and
             # self._weekdays[on_date.weekday()] and
-            self._service in BusCalendar.lookup(on_date)
+            self._service
+            in BusCalendar.lookup(on_date)
         )
 
     def is_active_on_weekday(self, weekday):
@@ -492,7 +512,9 @@ class BusRoute:
         self._id = route_id
         self._area, self._number = route_id.split(".", maxsplit=2)
         self._services = dict()
-        assert route_id not in BusRoute._all_routes, "route_id " + route_id + " already exists"
+        assert route_id not in BusRoute._all_routes, (
+            "route_id " + route_id + " already exists"
+        )
         BusRoute._all_routes[route_id] = self
 
     def add_service(self, service):
@@ -513,9 +535,8 @@ class BusRoute:
         return self.active_services(None)
 
     def __str__(self):
-        return (
-            "Route {0} with {1} services, of which {2} are active today"
-            .format(self._id, len(self._services), len(self.active_services_today()))
+        return "Route {0} with {1} services, of which {2} are active today".format(
+            self._id, len(self._services), len(self.active_services_today())
         )
 
     @property
@@ -565,7 +586,9 @@ class BusRoute:
     def initialize():
         """ Read information about bus routes from the trips.txt file """
         BusRoute._all_routes = dict()
-        with open(os.path.join(_THIS_PATH, "resources", "trips.txt"), "r", encoding="utf-8") as f:
+        BusService.clear()
+        BusTrip.clear()
+        with open(_RESOURCES_PATH("trips.txt"), "r", encoding="utf-8") as f:
             index = 0
             for line in f:
                 index += 1
@@ -611,7 +634,9 @@ class BusStop:
         self._id = stop_id
         self._name = name
         # Search key for this stop: lowercase, no hyphens or slashes
-        self._skey = name.lower().replace("-", " ").replace("/", " ").replace("   ", " ")
+        self._skey = (
+            name.lower().replace("-", " ").replace("/", " ").replace("   ", " ")
+        )
         # Location is a tuple of (lat, lon)
         (lat, lon) = self._location = location
         assert -90.0 <= lat <= 90.0
@@ -647,7 +672,7 @@ class BusStop:
         if not dist:
             return None
         # Sort on increasing distance
-        dist = sorted(dist, key=lambda t:t[0])
+        dist = sorted(dist, key=lambda t: t[0])
         if n == 1:
             # Only one stop requested: return it
             return dist[0][1]
@@ -674,9 +699,8 @@ class BusStop:
             if not match:
                 # Try the voice version, if different
                 voice_key = _VOICE_NAMES.get(stop_name)
-                match = (
-                    voice_key is not None
-                    and re.search(r"\b" + nlower + r"\b", voice_key.lower())
+                match = voice_key is not None and re.search(
+                    r"\b" + nlower + r"\b", voice_key.lower()
                 )
             if not match:
                 continue
@@ -733,7 +757,9 @@ class BusStop:
     @staticmethod
     def initialize():
         """ Read information about bus stops from the stops.txt file """
-        with open(os.path.join(_THIS_PATH, "resources", "stops.txt"), "r", encoding="utf-8") as f:
+        BusStop._all_stops = dict()
+        BusStop._all_stops_by_name = defaultdict(list)
+        with open(_RESOURCES_PATH("stops.txt"), "r", encoding="utf-8") as f:
             index = 0
             for line in f:
                 index += 1
@@ -752,7 +778,7 @@ class BusStop:
                 BusStop(
                     stop_id=stop_id,
                     name=f[1].strip(),
-                    location=(float(f[2]), float(f[3]))
+                    location=(float(f[2]), float(f[3])),
                 )
 
 
@@ -774,10 +800,6 @@ class BusHalt:
         BusTrip.add_halt(trip_id, self)
         BusStop.add_halt(stop_id, self)
 
-    @property
-    def arrival_time(self):
-        return self._arrival_time
-
     def time_to(self, halt):
         """ Return the time, in seconds, between this halt and the given one """
         if halt is self:
@@ -786,6 +808,10 @@ class BusHalt:
         t1 = datetime.combine(today, time(*self._arrival_time))
         t2 = datetime.combine(today, time(*halt._arrival_time))
         return (t2 - t1).total_seconds()
+
+    @property
+    def arrival_time(self):
+        return self._arrival_time
 
     @property
     def departure_time(self):
@@ -823,7 +849,7 @@ class BusHalt:
             """ Convert a hh:mm:ss string to a (h, m, s) tuple """
             return (int(s[0:2]), int(s[3:5]), int(s[6:8]))
 
-        with open(os.path.join(_THIS_PATH, "resources", "stop_times.txt"), "r", encoding="utf-8") as f:
+        with open(_RESOURCES_PATH("stop_times.txt"), "r", encoding="utf-8") as f:
             index = 0
             for line in f:
                 index += 1
@@ -859,8 +885,7 @@ class Bus:
     _lock = threading.Lock()
 
     def __init__(
-        self, *,
-        route_id, stop_id, next_stop_id, location, heading, code, timestamp
+        self, *, route_id, stop_id, next_stop_id, location, heading, code, timestamp
     ):
         assert "." in route_id
         self._route_id = route_id
@@ -919,8 +944,8 @@ class Bus:
         if root is None:
             # State is not available
             return
-        for bus in root.findall('bus'):
-            ts = bus.get('time')
+        for bus in root.findall("bus"):
+            ts = bus.get("time")
             ts = datetime(
                 year=2000 + int(ts[0:2]),
                 month=int(ts[2:4]),
@@ -929,10 +954,10 @@ class Bus:
                 minute=int(ts[8:10]),
                 second=int(ts[10:12]),
             )
-            lat = float(bus.get('lat'))
-            lon = float(bus.get('lon'))
-            heading = float(bus.get('head'))
-            route_id = bus.get('route')
+            lat = float(bus.get("lat"))
+            lon = float(bus.get("lon"))
+            heading = float(bus.get("head"))
+            route_id = bus.get("route")
             # Convert area indicators
             # !!! TODO: This needs to be verified further, and the 'SA' area added
             if route_id.startswith("A"):
@@ -943,9 +968,9 @@ class Bus:
                 assert route_id[0] in "123456789"
                 # Assume capital area
                 route_id = "ST." + route_id
-            stop_id = bus.get('stop')
-            next_stop_id = bus.get('next')
-            code = int(bus.get('code'))
+            stop_id = bus.get("stop")
+            next_stop_id = bus.get("next")
+            code = int(bus.get("code"))
             Bus(
                 route_id=route_id,
                 location=(lat, lon),
@@ -953,7 +978,7 @@ class Bus:
                 next_stop_id=next_stop_id,
                 heading=heading,
                 code=code,
-                timestamp=ts
+                timestamp=ts,
             )
         Bus._timestamp = datetime.utcnow()
 
@@ -1049,7 +1074,9 @@ class BusSchedule:
             for service in route.active_services(on_date=for_date):
                 for trip in service.trips:
                     for hms, halt in trip.sorted_halts:
-                        s[route.route_id][trip.last_stop.name][halt.stop.name].append(hms)
+                        s[route.route_id][trip.last_stop.name][halt.stop.name].append(
+                            hms
+                        )
         self._sched = s
 
     @property
@@ -1084,8 +1111,13 @@ class BusSchedule:
         print("\n\n")
 
     def arrivals(
-        self, route_number, stop, *,
-        n=2, after_hms=None, area_priority=_DEFAULT_AREA_PRIORITY
+        self,
+        route_number,
+        stop,
+        *,
+        n=2,
+        after_hms=None,
+        area_priority=_DEFAULT_AREA_PRIORITY
     ):
         """ Return a list of the subsequent arrivals of buses on the
             given route at the indicated stop, with reference to the
@@ -1155,22 +1187,19 @@ class BusSchedule:
         closest_gap = dict()
 
         def gap(trip):
-
             def diff(hms1, hms2):
                 """ Return the number of seconds between the two (h, m, s) tuples """
                 if hms1[0] >= 24:
                     # Apparently, some arrival times can exceed 23 hours,
                     # so we must account for that (since Python doesn't)
                     t1 = datetime.combine(
-                        today + timedelta(days=1),
-                        time(hms1[0] - 24, hms1[1], hms1[2])
+                        today + timedelta(days=1), time(hms1[0] - 24, hms1[1], hms1[2])
                     )
                 else:
                     t1 = datetime.combine(today, time(*hms1))
                 if hms2[0] >= 24:
                     t2 = datetime.combine(
-                        today + timedelta(days=1),
-                        time(hms2[0] - 24, hms2[1], hms2[2])
+                        today + timedelta(days=1), time(hms2[0] - 24, hms2[1], hms2[2])
                     )
                 else:
                     t2 = datetime.combine(today, time(*hms2))
@@ -1255,10 +1284,9 @@ class BusSchedule:
                     continue
                 # For this trip, we now have the halt that matches the last stop
                 # of the bus, as well as the halt at the queried stop.
-                journey_time = (
-                    last_halt.time_to(next_halt) * d_ratio +
-                    next_halt.time_to(our_halt)
-                )
+                journey_time = last_halt.time_to(
+                    next_halt
+                ) * d_ratio + next_halt.time_to(our_halt)
                 estimated_arrival = bus.timestamp + timedelta(seconds=journey_time)
                 if estimated_arrival < now:
                     # This bus is estimated to have already arrived and left
@@ -1269,11 +1297,13 @@ class BusSchedule:
                     print(
                         "Predicting that the bus at ({0:.6f}, {1:.6f}) will take "
                         "{2:.1f} seconds to drive from {3} to {4}, and then "
-                        "{5:.1f} seconds from there to {6}, arriving at {7}"
-                        .format(
-                            *bus.location, last_halt.time_to(next_halt) * d_ratio,
-                            last_halt.stop.name, next_halt.stop.name,
-                            next_halt.time_to(our_halt), our_halt.stop.name,
+                        "{5:.1f} seconds from there to {6}, arriving at {7}".format(
+                            *bus.location,
+                            last_halt.time_to(next_halt) * d_ratio,
+                            last_halt.stop.name,
+                            next_halt.stop.name,
+                            next_halt.time_to(our_halt),
+                            our_halt.stop.name,
                             estimated_arrival
                         )
                     )
@@ -1300,10 +1330,7 @@ def print_closest_stop(location):
     """ Answers the query: 'what is the closest bus stop' """
     s = BusStop.closest_to(location)
     print("Bus stop closest to {0} is {1}".format(location, s.name))
-    print(
-        "The distance to it is {0:.1f} km"
-        .format(distance(location, s.location))
-    )
+    print("The distance to it is {0:.1f} km".format(distance(location, s.location)))
 
 
 def print_next_arrivals(schedule, location, route_number):
@@ -1323,48 +1350,170 @@ def print_next_arrivals(schedule, location, route_number):
     arrivals, _ = schedule.arrivals(route_number, stop)
     for direction, times in arrivals.items():
         print(
-            "   Direction {0}: {1}"
-            .format(
+            "   Direction {0}: {1}".format(
                 direction,
-                ", ".join(
-                    "{0:02}:{1:02}".format(hms[0], hms[1]) for hms in times
-                )
+                ", ".join("{0:02}:{1:02}".format(hms[0], hms[1]) for hms in times),
             )
         )
     p = schedule.predicted_arrival(route_number, stop)
     if p is None:
         print(
-            "Unable to predict the next arrival of route {0} at {1}"
-            .format(route_number, stop.name)
+            "Unable to predict the next arrival of route {0} at {1}".format(
+                route_number, stop.name
+            )
         )
     else:
         print(
-            "Next predicted arrival of route {0} at {1} is:"
-            .format(route_number, stop.name)
+            "Next predicted arrival of route {0} at {1} is:".format(
+                route_number, stop.name
+            )
         )
         for direction, times in p.items():
             print(
-                "   Direction {0}: {1}"
-                .format(
+                "   Direction {0}: {1}".format(
                     direction,
-                    ", ".join(
-                        "{0:02}:{1:02}".format(hms[0], hms[1]) for hms in times
-                    )
+                    ", ".join("{0:02}:{1:02}".format(hms[0], hms[1]) for hms in times),
                 )
             )
 
 
-# When importing this module, initialize its data from the text files
-# in the resources/ subdirectory
-BusStop.initialize()
-BusCalendar.initialize()
-BusRoute.initialize()
-BusHalt.initialize()
-BusTrip.initialize()
-BusService.initialize()
+def initialize():
+    """ (Re-)initialize all schedule data from text files in the
+        resources/ subdirectory """
+    # Read stops.txt
+    BusStop.initialize()
+    # Read calendar_dates.txt
+    BusCalendar.initialize()
+    # Read trips.txt
+    BusRoute.initialize()
+    # Read stop_times.txt
+    BusHalt.initialize()
+    # Initialize the BusTrip instances
+    BusTrip.initialize()
+    # Initialize the BusService instances
+    BusService.initialize()
 
 
-if __name__ == "__main__":
+def fetch_gtfs():
+    """ Download the GTFS.zip file and unpack it in the resources/ subdirectory """
+    res_path = _RESOURCES_PATH()
+    # The resources/ subdirectory must be writable so we can fetch
+    # the ZIP archive and unzip it there
+    if not os.access(res_path, os.W_OK | os.X_OK):
+        msg = "The '{0}' directory must be writable".format(res_path)
+        logging.error(msg)
+        raise RuntimeError(msg)
+    # Fetch the bus schedule information from the open URL
+    try:
+        with requests.get(_SCHEDULE_URL, stream=True) as r:
+            with open(_GTFS_PATH, "wb") as f:
+                # This is an efficient method to copy file-like streams
+                shutil.copyfileobj(r.raw, f)
+    except OSError as e:
+        # Something is wrong; unable to fetch
+        logging.warning(
+            "Exception {2} when trying to download from {0} to {1}".format(
+                _SCHEDULE_URL, _GTFS_PATH, e
+            )
+        )
+        return False
+    if r.status_code != 200:
+        # Something is wrong; unable to fetch
+        logging.warning(
+            "HTTP status {1} when trying to download from {0}".format(
+                _SCHEDULE_URL, r.status_code
+            )
+        )
+        return False
+    # Successfully downloaded the ZIP archive: extract all files from it
+    with zipfile.ZipFile(_GTFS_PATH, "r") as z:
+        z.extractall(res_path)
+    return True
+
+
+def refresh(*, if_older_than=None, re_initialize=False):
+    """ Attempt to fetch the most recent GTFS.zip file from the Straeto
+        open data source, and reinitialize the already loaded schedule
+        data if requested. if_older_than is given in hours, with None
+        being interpreted as zero. """
+
+    if if_older_than:
+        # Skip the initialization if we already have a recent enough ZIP file
+        try:
+            tm_time = os.path.getmtime(_GTFS_PATH)
+        except IOError:
+            # No such file: skip through to the initialization
+            pass
+        else:
+            now = datetime.utcnow()
+            ts_file = datetime.fromtimestamp(tm_time)
+            if now - ts_file <= timedelta(hours=if_older_than):
+                # File is younger than if_older_than: no need to refresh
+                return False
+
+    if not fetch_gtfs():
+        # Not able to fetch the GTFS.zip archive
+        return False
+
+    # Successfully fetched and unzipped a new archive
+    if re_initialize:
+        initialize()
+
+    # Return True to indicate that the refresh was completed
+    return True
+
+
+# When this module is imported, its data is initialized from the text files
+# in the resources/ subdirectory. Subsequently, you may call refresh() to
+# refresh the text files from the Straeto open data source.
+
+if __name__ != "__main__":
+
+    initialize()
+
+else:
+
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="A Python wrapper for the bus schedules of Straeto bs"
+    )
+
+    parser.add_argument("--quiet", action="store_true", help="suppress output")
+
+    subparsers = parser.add_subparsers(help="subcommand")
+
+    parser_refresh = subparsers.add_parser(
+        "refresh", help="refresh schedule data from Straeto bs website"
+    )
+
+    parser_refresh.add_argument(
+        "--if_older_than",
+        nargs="?",
+        type=int,
+        default=0,
+        help="refresh only if existing GTFS.ZIP file is older than N hours",
+    )
+
+    parser_test = subparsers.add_parser("test", help="run test code")
+
+    args = parser.parse_args()
+
+    if hasattr(args, "if_older_than"):
+        # This must be the refresh command
+        if refresh(if_older_than=args.if_older_than):
+            if not args.quiet:
+                print("Refresh completed")
+        else:
+            if not args.quiet:
+                print("Refresh was not necessary or not successful")
+        import sys
+
+        sys.exit(0)
+
+    # This must be the 'test' command
+
+    initialize()
 
     # This main program contains a mix of test and demo cases.
     # Normally you use Straeto as a module through import, not as a main program.
@@ -1397,8 +1546,9 @@ if __name__ == "__main__":
                     print("      trip {0}".format(trip.trip_id))
                     for hms, halt in trip.sorted_halts:
                         print(
-                            "         halt {0:02}:{1:02}:{2:02} at {3}"
-                            .format(hms[0], hms[1], hms[2], halt.stop.name)
+                            "         halt {0:02}:{1:02}:{2:02} at {3}".format(
+                                hms[0], hms[1], hms[2], halt.stop.name
+                            )
                         )
 
     if True:
@@ -1413,10 +1563,14 @@ if __name__ == "__main__":
             for bus in sorted(val, key=lambda bus: entf(bus.location)):
                 print(
                     "   {6} loc:{0}, head:{1:>6.2f}, stop:{2}, next:{3}, code:{4}, "
-                    "dist:{5:.2f}"
-                    .format(
-                        locfmt(bus.location), bus.heading, bus.stop,
-                        bus.next_stop, bus.code, entf(bus.location), bus.timestamp
+                    "dist:{5:.2f}".format(
+                        locfmt(bus.location),
+                        bus.heading,
+                        bus.stop,
+                        bus.next_stop,
+                        bus.code,
+                        entf(bus.location),
+                        bus.timestamp,
                     )
                 )
 
