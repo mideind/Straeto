@@ -110,6 +110,7 @@ _VOICE_NAMES = {
     "Menntaskólinn í Reykjavík / MR": "MR",
     "Menntaskólinn við Hamrahlíð / MH": "MH",
     "Menntaskólinn við Sund / MS": "MS",
+    "Íþróttamiðstöð ÍR": "Íþróttamiðstöð Í R",
 }
 
 # In case of conflict between route numbers, resolve the conflict by
@@ -253,7 +254,7 @@ class BusTrip:
         self._short_name = short_name
         self._direction = direction
         self._block = block
-        self._halts = dict()
+        self._halts = defaultdict(list)
         # Set of stop_ids visited on this trip
         self._stops = set()
         # Set of tuples: (stop, next_stop) for all consecutive stops on this trip
@@ -284,9 +285,12 @@ class BusTrip:
     def _initialize(self):
         """ Perform initialization after all trips have been created """
         # Calculate and cache the list of sorted halts, in sequence order
-        h = self._sorted_halts = sorted(
-            self._halts.items(), key=lambda h: h[1].stop_seq
-        )
+        h = []
+        for hms, halts in self._halts.items():
+            for halt in halts:
+                h.append((hms, halt))
+        h.sort(key=lambda item: item[1].stop_seq)
+        self._sorted_halts = h
         # Collect tuples of consecutive stops
         for ix in range(len(h) - 1):
             self._consecutive_stops.add((h[ix][1].stop_id, h[ix + 1][1].stop_id))
@@ -298,7 +302,8 @@ class BusTrip:
     @property
     def halts(self):
         """ Returns a dictionary of BusHalts on this trip,
-            keyed by arrival time (h, m, s) """
+            keyed by arrival time (h, m, s), with each value
+            being a list of BusHalt instances """
         return self._halts
 
     @property
@@ -400,7 +405,8 @@ class BusTrip:
         # Index by arrival time
         arrival = halt.arrival_time
         departure = halt.departure_time
-        self._halts[arrival] = halt
+        # Note: there may be multiple halts at the same time!
+        self._halts[arrival].append(halt)
         if halt.stop_seq == 1:
             # This is the first stop in the trip
             self._first_stop = halt.stop
@@ -641,9 +647,6 @@ class BusStop:
         (lat, lon) = self._location = location
         assert -90.0 <= lat <= 90.0
         assert -180.0 <= lon <= 180.0
-        # Maintain a dictionary of halts at this stop,
-        # indexed by arrival time
-        self._halts = dict()
         assert stop_id not in BusStop._all_stops
         BusStop._all_stops[stop_id] = self
         BusStop._all_stops_by_name[name].append(self)
@@ -750,7 +753,6 @@ class BusStop:
         """ Add a halt to this stop, indexed by arrival time """
         stop = BusStop.lookup(stop_id)
         assert stop is not None
-        stop._halts[halt.arrival_time] = halt
         # Note which routes stop here, and in which directions
         stop._visits[halt.route_id].add(halt.direction)
 
@@ -1534,7 +1536,7 @@ else:
 
     if True:
         # Print today's schedule for a route
-        sched_today.print_schedule("ST.12")
+        sched_today.print_schedule("ST.3")
 
     if False:
         # Dump the schedule data for all routes
