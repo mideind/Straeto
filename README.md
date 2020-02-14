@@ -11,7 +11,7 @@ fetch it frequently or frivolously. An interval of at least 24 hours
 should be more than enough.
 
 Note that the process that fetches the `GTFS.zip` file must have
-file create and file write rights on the resources/ subdirectory
+file create and file write rights on the `resources/` subdirectory
 within the Straeto source package.
 
 ## Installation
