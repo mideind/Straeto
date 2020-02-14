@@ -6,9 +6,13 @@ routes of Strætó bs, an Icelandic municipal bus service.
 
 The data is fetched from an open data file released by
 Strætó bs called [`GTFS.zip`](http://opendata.straeto.is/data/gtfs/gtfs.zip).
-This file is large, doesn't change often and should not
-be fetched frequently or frivolously.
-The Straeto package downloads it at most once every 24 hours.
+This file is large and doesn't change often. Please do not
+fetch it frequently or frivolously. An interval of at least 24 hours
+should be more than enough.
+
+Note that the process that fetches the `GTFS.zip` file must have
+file create and file write rights on the resources/ subdirectory
+within the Straeto source package.
 
 ## Installation
 
@@ -54,7 +58,7 @@ else:
 
 ## Documentation
 
-This is a pre-alpha release and proper documentation has not yet been
+This is a beta release and proper documentation has not yet been
 produced. But the code is fairly self-explanatory; look at the file
 `src/straeto/straeto.py` to see the source code for the main classes
 and some usage examples.
@@ -69,6 +73,12 @@ have your URL, put it in the file `config/status_url.txt` to enable the Straeto
 package to fetch real-time data.
 
 ## Release history
+
+* Release **1.0.0**
+
+    Beta release. Supports downloading and extraction of the `GTFS.zip`
+    schedule file from the Strætó bs open data URL. Fixes a bug where sequential
+    bus halts with identical time points were not being included in the schedule.
 
 * Release **0.0.10**
 
