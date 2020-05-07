@@ -862,9 +862,10 @@ class BusHalt:
                 if not line:
                     continue
                 # Format is:
-                # trip_id,arrival_time,departure_time,stop_id,stop_sequence,stop_headsign
+                # trip_id,arrival_time,departure_time,stop_id,
+                # stop_sequence,stop_headsign,pickup_type
                 f = line.split(",")
-                assert len(f) == 6
+                assert len(f) == 7
                 BusHalt(
                     f[0].strip(),  # trip_id
                     to_hms(f[1].strip()),  # arrival_time
