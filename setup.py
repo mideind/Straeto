@@ -58,7 +58,7 @@ def read(*names, **kwargs):
 setup(
     name="straeto",
     # Remember to modify version number in src/straeto/__init__.py as well
-    version="1.0.1",
+    version="1.0.2",
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
     long_description="{0}\n".format(read("README.md")),

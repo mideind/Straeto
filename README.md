@@ -74,6 +74,16 @@ package to fetch real-time data.
 
 ## Release history
 
+* Release **1.0.2**
+
+    Updated the default resources files that accompany the
+    Straeto package.
+
+* Release **1.0.1**
+
+    Updated the code to reflect a change in the format of the
+    `stop_times.txt` file, going from 6 fields to 7.
+
 * Release **1.0.0**
 
     Beta release. Supports downloading and extraction of the `GTFS.zip`
