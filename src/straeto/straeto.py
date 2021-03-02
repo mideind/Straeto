@@ -39,6 +39,8 @@
 
 """
 
+from typing import Tuple, Optional, Union, List
+
 import os
 import re
 import math
@@ -660,7 +662,9 @@ class BusStop:
         return BusStop._all_stops.get(stop_id)
 
     @staticmethod
-    def closest_to(location, n=1, within_radius=None):
+    def closest_to(
+        location: Tuple[float, float], n: int = 1, within_radius: Optional[float] = None
+    ) -> Union[None, "BusStop", List["BusStop"]]:
         """ Find the bus stop closest to the given location and return it,
             or a list of the closest stops if n > 1, but in any case only return
             stops that are within the given radius (in kilometers). """
@@ -683,7 +687,7 @@ class BusStop:
         return [stop for _, stop in dist[0:n]]
 
     @staticmethod
-    def named(name, *, fuzzy=False):
+    def named(name: str, *, fuzzy: bool=False) -> List["BusStop"]:
         """ Return all bus stops with the given name,
             optionally using fuzzy matching """
         stops = BusStop._all_stops_by_name.get(name, [])
