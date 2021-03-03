@@ -74,6 +74,12 @@ package to fetch real-time data.
 
 ## Release history
 
+* Release **1.1.0**
+
+    Added type annotations; modified the `BusStop.closest_to()` function;
+    updated the default resources files that accompany the
+    Straeto package.
+
 * Release **1.0.2**
 
     Updated the default resources files that accompany the
@@ -97,7 +103,7 @@ package to fetch real-time data.
 
 ## Copyright
 
-*This program is copyright &copy; 2020 Miðeind ehf.*
+*This program is copyright &copy; 2021 Miðeind ehf.*
 
 ## License
 

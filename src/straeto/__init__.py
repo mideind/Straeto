@@ -2,7 +2,7 @@
 
     Straeto: A package encapsulating information about buses and bus routes
 
-    Copyright (C) 2020 Miðeind ehf.
+    Copyright (C) 2021 Miðeind ehf.
     Original author: Vilhjálmur Þorsteinsson
 
         This program is free software: you can redistribute it and/or modify
@@ -47,6 +47,6 @@ from .straeto import (
 )
 
 __author__ = "Miðeind ehf."
-__copyright__ = "(C) 2020 Miðeind ehf."
+__copyright__ = "(C) 2021 Miðeind ehf."
 # Remember to update the version in setup.py as well
-__version__ = "1.0.2"
+__version__ = "1.1.0"
