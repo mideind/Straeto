@@ -74,6 +74,11 @@ package to fetch real-time data.
 
 ## Release history
 
+* Release **1.2.0**
+
+    Updated and hardened the code that reads Strætó.bs' XML configuration file.
+    Added type annotations.
+
 * Release **1.1.0**
 
     Added type annotations; modified the `BusStop.closest_to()` function;

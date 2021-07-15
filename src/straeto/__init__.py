@@ -49,4 +49,4 @@ from .straeto import (
 __author__ = "Miðeind ehf."
 __copyright__ = "(C) 2021 Miðeind ehf."
 # Remember to update the version in setup.py as well
-__version__ = "1.1.0"
+__version__ = "1.2.0"
