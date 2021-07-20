@@ -74,6 +74,11 @@ package to fetch real-time data.
 
 ## Release history
 
+* Release **1.3.0**
+
+    Added type annotations; fixed Python 3.6 compatibility
+    regression.
+
 * Release **1.2.0**
 
     Updated and hardened the code that reads Strætó.bs' XML configuration file.

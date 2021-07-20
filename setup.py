@@ -30,7 +30,6 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import io
-import re
 import sys
 
 from glob import glob
@@ -40,8 +39,8 @@ from setuptools import find_packages
 from setuptools import setup
 
 
-if sys.version_info < (3, 5):
-    print("Straeto requires Python >= 3.5")
+if sys.version_info < (3, 6):
+    print("Straeto requires Python >= 3.6")
     sys.exit(1)
 
 
@@ -58,7 +57,7 @@ def read(*names, **kwargs):
 setup(
     name="straeto",
     # Remember to modify version number in src/straeto/__init__.py as well
-    version="1.2.0",
+    version="1.3.0",
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
     long_description="{0}\n".format(read("README.md")),
@@ -83,10 +82,10 @@ setup(
         "Natural Language :: Icelandic",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: Implementation :: PyPy",
         "Topic :: Software Development :: Libraries :: Python Modules",
