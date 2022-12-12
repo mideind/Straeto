@@ -1,6 +1,6 @@
 """
 
-    Straeto: A package encapsulating information about buses and bus routes
+    Straeto: A package encapsulating information about Iceland's buses and bus routes
 
     Copyright (C) 2022 Miðeind ehf.
     Original author: Vilhjálmur Þorsteinsson
