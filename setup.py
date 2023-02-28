@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
+#!/usr/bin/env python3
 """
 
     Straeto: A package encapsulating information about buses and bus routes
@@ -32,14 +31,13 @@ from __future__ import unicode_literals
 from typing import Any
 
 import io
-import sys
-
 from glob import glob
 from os.path import basename, dirname, join, splitext
 
 from setuptools import find_packages
 from setuptools import setup
 
+from src.straeto import __version__
 
 if sys.version_info < (3, 7):
     print("Straeto requires Python >= 3.7")
@@ -50,8 +48,7 @@ def read(*names: Any, **kwargs: Any) -> str:
     """Read a file for inclusion in the long description"""
     try:
         return io.open(
-            join(dirname(__file__), *names),
-            encoding=kwargs.get("encoding", "utf8")
+            join(dirname(__file__), *names), encoding=kwargs.get("encoding", "utf8")
         ).read()
     except (IOError, OSError):
         return ""
@@ -60,7 +57,7 @@ def read(*names: Any, **kwargs: Any) -> str:
 setup(
     name="straeto",
     # Remember to modify version number in src/straeto/__init__.py as well
-    version="1.4.0",
+    version=__version__,
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
     long_description=f"{read('README.md')}\n",

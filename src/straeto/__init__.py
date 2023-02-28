@@ -1,6 +1,6 @@
 """
 
-    Straeto: A package encapsulating information about buses and bus routes
+    Straeto: A package encapsulating information about Iceland's buses and bus routes
 
     Copyright (C) 2023 Miðeind ehf.
     Original author: Vilhjálmur Þorsteinsson
@@ -48,7 +48,6 @@ from .straeto import (
 
 __author__ = "Miðeind ehf."
 __copyright__ = "(C) 2023 Miðeind ehf."
-# Remember to update the version in setup.py as well
 __version__ = "1.4.0"
 
 __all__ = [
