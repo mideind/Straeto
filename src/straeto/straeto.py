@@ -675,22 +675,22 @@ class BusRoute:
                 # Format is:
                 # route_id,service_id,trip_id,trip_headsign,trip_short_name,
                 # direction_id,block_id,shape_id
-                f = line.split(",")
-                assert len(f) == 8
+                s = line.split(",")
+                assert len(s) == 8
                 # Break 'ST.17' into components area='ST' and number='17'
-                route_id = f[0]
+                route_id = s[0]
                 route = BusRoute.lookup(route_id) or BusRoute(route_id)
                 # Make a unique service id out of the route id
                 # plus the non-unique service id
-                service = BusService.lookup(route_id + "/" + f[1])
+                service = BusService.lookup(route_id + "/" + s[1])
                 route.add_service(service)
                 trip = BusTrip(
-                    trip_id=f[2],
+                    trip_id=s[2],
                     route_id=route_id,
-                    headsign=f[3],
-                    short_name=f[4],
-                    direction=f[5],
-                    block=f[6],
+                    headsign=s[3],
+                    short_name=s[4],
+                    direction=s[5],
+                    block=s[6],
                 )
                 # We don't use shape_id, f[7], for now
                 service.add_trip(trip)
@@ -1408,11 +1408,12 @@ class BusSchedule:
                     assert last_halt.stop is not None
                     assert next_halt.stop is not None
                     assert our_halt.stop is not None
+                    lat, lon = bus.location
                     print(
                         "Predicting that the bus at ({0:.6f}, {1:.6f}) will take "
                         "{2:.1f} seconds to drive from {3} to {4}, and then "
                         "{5:.1f} seconds from there to {6}, arriving at {7}".format(
-                            *bus.location,
+                            lat, lon,
                             last_halt.time_to(next_halt) * d_ratio,
                             last_halt.stop.name,
                             next_halt.stop.name,
