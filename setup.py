@@ -6,7 +6,7 @@
 
     Setup.py
 
-    Copyright (C) 2021 Miðeind ehf.
+    Copyright (C) 2023 Miðeind ehf.
     Original Author: Vilhjálmur Þorsteinsson
 
         This program is free software: you can redistribute it and/or modify
@@ -29,6 +29,8 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
+from typing import Any
+
 import io
 import sys
 
@@ -39,12 +41,13 @@ from setuptools import find_packages
 from setuptools import setup
 
 
-if sys.version_info < (3, 6):
-    print("Straeto requires Python >= 3.6")
+if sys.version_info < (3, 7):
+    print("Straeto requires Python >= 3.7")
     sys.exit(1)
 
 
-def read(*names, **kwargs):
+def read(*names: Any, **kwargs: Any) -> str:
+    """Read a file for inclusion in the long description"""
     try:
         return io.open(
             join(dirname(__file__), *names),
@@ -57,10 +60,10 @@ def read(*names, **kwargs):
 setup(
     name="straeto",
     # Remember to modify version number in src/straeto/__init__.py as well
-    version="1.3.0",
+    version="1.4.0",
     license="GNU GPLv3",
     description="A package for information about buses and bus routes",
-    long_description="{0}\n".format(read("README.md")),
+    long_description=f"{read('README.md')}\n",
     long_description_content_type="text/markdown",
     author="Miðeind ehf",
     author_email="mideind@mideind.is",
@@ -68,6 +71,7 @@ setup(
     packages=find_packages("src"),
     package_dir={"": "src"},
     py_modules=[splitext(basename(path))[0] for path in glob("src/*.py")],
+    package_data={"straeto": ["py.typed"]},
     include_package_data=True,
     zip_safe=True,
     classifiers=[
@@ -82,10 +86,11 @@ setup(
         "Natural Language :: Icelandic",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: Implementation :: PyPy",
         "Topic :: Software Development :: Libraries :: Python Modules",

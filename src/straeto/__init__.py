@@ -2,7 +2,7 @@
 
     Straeto: A package encapsulating information about buses and bus routes
 
-    Copyright (C) 2021 Miðeind ehf.
+    Copyright (C) 2023 Miðeind ehf.
     Original author: Vilhjálmur Þorsteinsson
 
         This program is free software: you can redistribute it and/or modify
@@ -43,10 +43,28 @@ from .straeto import (
 from .straeto import (
     print_closest_stop,
     print_next_arrivals,
-    _MIDEIND_LOCATION,
+    _MIDEIND_LOCATION,  # type: ignore
 )
 
 __author__ = "Miðeind ehf."
-__copyright__ = "(C) 2021 Miðeind ehf."
+__copyright__ = "(C) 2023 Miðeind ehf."
 # Remember to update the version in setup.py as well
-__version__ = "1.3.0"
+__version__ = "1.4.0"
+
+__all__ = [
+    "Bus",
+    "BusSchedule",
+    "BusCalendar",
+    "BusRoute",
+    "BusService",
+    "BusTrip",
+    "BusStop",
+    "BusHalt",
+    "distance",
+    "locfmt",
+    "refresh",
+    "initialize",
+    "print_closest_stop",
+    "print_next_arrivals",
+    "_MIDEIND_LOCATION",
+]

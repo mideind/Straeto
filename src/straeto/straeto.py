@@ -2,7 +2,7 @@
 
     straeto.py: A package encapsulating information about Icelandic buses and bus routes
 
-    Copyright (c) 2021 Miðeind ehf.
+    Copyright (c) 2023 Miðeind ehf.
     Original author: Vilhjálmur Þorsteinsson
 
        This program is free software: you can redistribute it and/or modify
@@ -39,20 +39,20 @@
 
 """
 
-# from __future__ import annotations
+from __future__ import annotations
 
 from typing import (
-    Any,
     DefaultDict,
     Dict,
     FrozenSet,
+    Iterable,
+    Mapping,
     Match,
     Set,
     Tuple,
     Optional,
     List,
     Union,
-    cast,
 )
 
 import os
@@ -91,13 +91,13 @@ _GTFS_PATH = _RESOURCES_PATH("gtfs.zip")
 # you must apply to Straeto bs to obtain permission and get your own URL)
 _STATUS_URL_FILE = _CONFIG_PATH("status_url.txt")
 
-_STATUS_URL: Optional[str]
-
+_status_url: Optional[str] = None
 try:
-    _STATUS_URL = open(_STATUS_URL_FILE, "r", encoding="utf-8").read().strip()
+    _status_url = open(_STATUS_URL_FILE, "r", encoding="utf-8").read().strip()
 except FileNotFoundError:
-    logging.warning("Unable to read '{0}'".format(_STATUS_URL_FILE))
-    _STATUS_URL = None
+    logging.warning(f"Unable to read '{_STATUS_URL_FILE}'")
+
+_STATUS_URL = _status_url
 
 # Real-time status refresh interval
 _REFRESH_INTERVAL = 60
@@ -108,7 +108,7 @@ _STATUS_FILE = _RESOURCES_PATH("status.xml")
 _EARTH_RADIUS = 6371.0088  # Earth's radius in km
 _MIDEIND_LOCATION: LatLonTuple = (64.156896, -21.951200)  # Fiskislóð 31, 101 Reykjavík
 
-_VOICE_NAMES = {
+_VOICE_NAMES: Mapping[str, str] = {
     "Umferðarmiðstöðin (BSÍ)": "Umferðarmiðstöðin",
     "BSÍ": "Umferðarmiðstöðin",
     "BSÍ / Landspítalinn": "Umferðarmiðstöðin / Landspítalinn",
@@ -359,7 +359,7 @@ class BusTrip:
         assert self._sorted_halts is not None
         return self._sorted_halts
 
-    def has_consecutive_stops(self, stop1_id, stop2_id):
+    def has_consecutive_stops(self, stop1_id: str, stop2_id: str) -> bool:
         """ Returns True if the trip includes the two given stops,
             consecutively """
         if not stop1_id:
@@ -368,7 +368,9 @@ class BusTrip:
             return self.stops_at(stop1_id)
         return (stop1_id, stop2_id) in self._consecutive_stops
 
-    def following_halt(self, stop_id, base_stop_id):
+    def following_halt(
+        self, stop_id: str, base_stop_id: str
+    ) -> Tuple[Optional[BusHalt], Optional[BusHalt], Optional[BusHalt]]:
         """ Scan the halts on this trip following the one at base_stop_id,
             looking for stop_id. If found, return the base halt,
             the next halt after it, and the found halt,
@@ -392,36 +394,40 @@ class BusTrip:
         return None, None, None
 
     @property
-    def direction(self):
+    def direction(self) -> str:
         """ The direction of this trip, '0' or '1' """
         return self._direction
 
     @property
-    def first_stop(self):
+    def first_stop(self) -> BusStop:
         """ The first BusStop visited on this trip """
+        assert self._first_stop is not None
         return self._first_stop
 
     @property
-    def last_stop(self):
+    def last_stop(self) -> BusStop:
         """ The last BusStop visited on this trip """
+        assert self._last_stop is not None
         return self._last_stop
 
     @property
-    def start_time(self):
+    def start_time(self) -> HmsTuple:
         """ The start time of this trip """
+        assert self._start_time is not None
         return self._start_time
 
     @property
-    def end_time(self):
+    def end_time(self) -> HmsTuple:
         """ The end time of this trip """
+        assert self._end_time is not None
         return self._end_time
 
     @property
-    def route_id(self):
+    def route_id(self) -> str:
         return self._route_id
 
     @property
-    def route(self):
+    def route(self) -> Optional[BusRoute]:
         return BusRoute.lookup(self._route_id)
 
     def __str__(self):
@@ -430,7 +436,7 @@ class BusTrip:
         )
 
     @staticmethod
-    def lookup(trip_id):
+    def lookup(trip_id: str) -> Optional[BusTrip]:
         """ Return a BusTrip having the given id, or None if it doesn't exist """
         return BusTrip._all_trips.get(trip_id)
 
@@ -458,7 +464,7 @@ class BusTrip:
             self._end_time = departure
 
     @staticmethod
-    def add_halt(trip_id, halt: "BusHalt") -> None:
+    def add_halt(trip_id: str, halt: "BusHalt") -> None:
         """ Add a halt to this trip """
         trip = BusTrip.lookup(trip_id)
         assert trip is not None
@@ -512,9 +518,11 @@ class BusService:
 
     def _initialize(self) -> None:
         """ Complete initialization of this service """
-        self._ordered_trips = sorted(
-            self._trips.values(), key=cast(Any, lambda trip: trip.start_time)
-        )
+
+        def keyfunc(trip: BusTrip) -> HmsTuple:
+            return trip.start_time
+
+        self._ordered_trips = sorted(self._trips.values(), key=keyfunc)
 
     @staticmethod
     def lookup(service_id: str) -> "BusService":
@@ -526,11 +534,11 @@ class BusService:
         return self._id
 
     @property
-    def trips(self):
+    def trips(self) -> Iterable[BusTrip]:
         """ The trips associated with this service """
         return self._trips.values()
 
-    def is_active_on_date(self, on_date):
+    def is_active_on_date(self, on_date: date) -> bool:
         """ Returns True if the service is active on the given date """
         return (
             # self._valid_from <= on_date and
@@ -547,7 +555,7 @@ class BusService:
         except IndexError:
             return False
 
-    def add_trip(self, trip):
+    def add_trip(self, trip: BusTrip) -> None:
         """ Add a trip to this service """
         self._trips[trip.trip_id] = trip
 
@@ -577,7 +585,7 @@ class BusRoute:
         """ Add a service to this route """
         self._services[service.service_id] = service
 
-    def active_services(self, on_date):
+    def active_services(self, on_date: Optional[date]) -> List[BusService]:
         """ Returns a list of the services on this route
             that are active on the given date """
         if on_date is None:
@@ -585,7 +593,7 @@ class BusRoute:
             on_date = date(now.year, now.month, now.day)
         return [s for s in self._services.values() if s.is_active_on_date(on_date)]
 
-    def active_services_today(self):
+    def active_services_today(self) -> List[BusService]:
         """ Returns a list of the services on this route
             that are active today, based on UTC (Icelandic time) """
         return self.active_services(None)
@@ -596,21 +604,21 @@ class BusRoute:
         )
 
     @property
-    def number(self):
+    def number(self) -> str:
         return self._number
 
     @property
-    def area(self):
+    def area(self) -> str:
         return self._area
 
     @property
-    def route_id(self):
+    def route_id(self) -> str:
         return self._id
 
     @staticmethod
     def lookup_number(
         route_number: str, *, area_priority: Tuple[str, ...] = _DEFAULT_AREA_PRIORITY
-    ) -> Optional["BusRoute"]:
+    ) -> Optional[BusRoute]:
         """ Return the route having the given number """
         assert "." not in route_number
         for area in area_priority:
@@ -630,7 +638,7 @@ class BusRoute:
         return None if route is None else route.route_id
 
     @staticmethod
-    def lookup(route_id: str) -> Optional["BusRoute"]:
+    def lookup(route_id: Optional[str]) -> Optional[BusRoute]:
         """ Return the route having the given full identifier """
         if route_id is None:
             return None
@@ -638,12 +646,12 @@ class BusRoute:
         return BusRoute._all_routes.get(route_id)
 
     @staticmethod
-    def all_routes():
+    def all_routes() -> Dict[str, BusRoute]:
         """ Return a dictionary of all routes, keyed by identifier """
         return BusRoute._all_routes
 
     @staticmethod
-    def initialize():
+    def initialize() -> None:
         """ Read information about bus routes from the trips.txt file """
         BusRoute._all_routes = dict()
         BusService.clear()
@@ -687,10 +695,10 @@ class BusStop:
     """ A BusStop is a place at a particular location where one or more
         buses stop on their trips. """
 
-    _all_stops: Dict[str, "BusStop"] = dict()
+    _all_stops: Dict[str, BusStop] = dict()
     _all_stops_by_name: DefaultDict[str, List["BusStop"]] = defaultdict(list)
 
-    def __init__(self, stop_id, name, location):
+    def __init__(self, stop_id: str, name: str, location: LatLonTuple):
         self._id = stop_id
         self._name = name
         # Search key for this stop: lowercase, no hyphens or slashes
@@ -706,10 +714,10 @@ class BusStop:
         BusStop._all_stops_by_name[name].append(self)
         # Dict of routes that visit this stop, with each
         # value being a set of directions
-        self._visits = defaultdict(set)
+        self._visits: DefaultDict[str, Set[str]] = defaultdict(set)
 
     @staticmethod
-    def lookup(stop_id: str) -> Optional["BusStop"]:
+    def lookup(stop_id: str) -> Optional[BusStop]:
         """ Return a BusStop with the given id, or None if no such stop exists """
         return BusStop._all_stops.get(stop_id)
 
@@ -743,7 +751,7 @@ class BusStop:
         return [stop for _, stop in dist[0:n]]
 
     @staticmethod
-    def named(name: str, *, fuzzy: bool = False) -> List["BusStop"]:
+    def named(name: str, *, fuzzy: bool = False) -> List[BusStop]:
         """ Return all bus stops with the given name,
             optionally using fuzzy matching """
         stops = BusStop._all_stops_by_name.get(name, [])
@@ -756,7 +764,7 @@ class BusStop:
         # Note the stops we already have in the result list
         stop_ids = set(stop.stop_id for stop in stops)
         nlower = name.lower().replace("-", " ").replace("   ", " ")
-        match: Union[None, bool, Match]
+        match: Union[None, bool, Match[str]]
         for stop_name, stops in BusStop._all_stops_by_name.items():
             stop = stops[0]
             match = re.search(r"\b" + nlower + r"\b", stop._skey)
@@ -777,7 +785,7 @@ class BusStop:
         return result
 
     @staticmethod
-    def sort_by_proximity(stops, location: LatLonTuple) -> None:
+    def sort_by_proximity(stops: List[BusStop], location: LatLonTuple) -> None:
         """ Sort a list of bus stops by increasing distance from the
             given location """
         stops.sort(key=lambda stop: distance(location, stop.location))
@@ -799,12 +807,12 @@ class BusStop:
         return self._name
 
     @property
-    def visits(self):
+    def visits(self) -> DefaultDict[str, Set[str]]:
         """ Return the routes that visit this stop, as
             a dict: { route_id : set(directions) } """
         return self._visits
 
-    def is_visited_by_route(self, route_id):
+    def is_visited_by_route(self, route_id: str) -> Optional[Set[str]]:
         """ If the given route visits this stop,
             return a set of directions ('0' and/or '1').
             Otherwise, return None. """
@@ -815,12 +823,13 @@ class BusStop:
         return self._location
 
     @staticmethod
-    def add_halt(stop_id: str, halt: "BusHalt") -> None:
+    def add_halt(stop_id: str, halt: BusHalt) -> None:
         """ Add a halt to this stop, indexed by arrival time """
         stop = BusStop.lookup(stop_id)
         assert stop is not None
         # Note which routes stop here, and in which directions
-        stop._visits[halt.route_id].add(halt.direction)
+        if halt.route_id and halt.direction:
+            stop._visits[halt.route_id].add(halt.direction)
 
     @staticmethod
     def initialize() -> None:
@@ -870,7 +879,7 @@ class BusHalt:
         BusTrip.add_halt(trip_id, self)
         BusStop.add_halt(stop_id, self)
 
-    def time_to(self, halt: "BusHalt") -> float:
+    def time_to(self, halt: BusHalt) -> float:
         """ Return the time, in seconds, between this halt and the given one """
         if halt is self:
             return 0
@@ -953,7 +962,7 @@ class Bus:
         heading, its last or current stop, its next stop,
         and its status code. """
 
-    _all_buses: DefaultDict[str, List["Bus"]] = defaultdict(list)
+    _all_buses: DefaultDict[str, List[Bus]] = defaultdict(list)
     _info_timestamp: Optional[datetime] = None
     _lock = threading.Lock()
 
@@ -982,13 +991,13 @@ class Bus:
         Bus._all_buses[route_id].append(self)
 
     @staticmethod
-    def all_buses() -> DefaultDict[str, List["Bus"]]:
+    def all_buses() -> DefaultDict[str, List[Bus]]:
         """ Returns a dict of lists of all known buses, keyed by route id """
         Bus.refresh_state()
         return Bus._all_buses
 
     @staticmethod
-    def buses_on_route(route_id: str) -> List["Bus"]:
+    def buses_on_route(route_id: str) -> List[Bus]:
         """ Return all buses currently driving on the indicated route """
         Bus.refresh_state()
         return Bus._all_buses.get(route_id, [])
@@ -1082,11 +1091,11 @@ class Bus:
             Bus._load_state()
 
     @property
-    def route_id(self):
+    def route_id(self) -> str:
         return self._route_id
 
     @property
-    def route(self):
+    def route(self) -> Optional[BusRoute]:
         return BusRoute.lookup(self._route_id)
 
     @property
@@ -1094,23 +1103,23 @@ class Bus:
         return self._location
 
     @property
-    def heading(self):
+    def heading(self) -> float:
         return self._heading
 
     @property
-    def stop_id(self):
+    def stop_id(self) -> str:
         return self._stop_id
 
     @property
-    def next_stop_id(self):
+    def next_stop_id(self) -> str:
         return self._next_stop_id
 
     @property
-    def stop(self):
+    def stop(self) -> Optional[BusStop]:
         return BusStop.lookup(self._stop_id)
 
     @property
-    def next_stop(self):
+    def next_stop(self) -> Optional[BusStop]:
         return BusStop.lookup(self._next_stop_id)
 
     @property
@@ -1118,7 +1127,7 @@ class Bus:
         return self._timestamp
 
     @property
-    def code(self):
+    def code(self) -> int:
         """ Bus state """
         # 1 Ekki notað
         # 2 Vagninn hefur stöðvað
@@ -1132,7 +1141,7 @@ class Bus:
         return self._code
 
     @property
-    def state(self):
+    def state(self) -> Tuple[str, LatLonTuple, float, Optional[BusStop], Optional[BusStop], int, datetime]:
         """ Return the entire state in one call """
         return (
             self._route_id,
@@ -1163,7 +1172,7 @@ class BusSchedule:
             for service in route.active_services(on_date=for_date):
                 for trip in service.trips:
                     for hms, halt in trip.sorted_halts:
-                        if trip.last_stop is not None and halt.stop is not None:
+                        if halt.stop is not None:
                             s[route.route_id][trip.last_stop.name][
                                 halt.stop.name
                             ].append(hms)
@@ -1202,13 +1211,13 @@ class BusSchedule:
 
     def arrivals(
         self,
-        route_number,
-        stop,
+        route_number: str,
+        stop: BusStop,
         *,
-        n=2,
-        after_hms=None,
-        area_priority=_DEFAULT_AREA_PRIORITY,
-    ):
+        n: int = 2,
+        after_hms: Optional[HmsTuple] = None,
+        area_priority: Tuple[str, ...] = _DEFAULT_AREA_PRIORITY,
+    ) -> Tuple[Dict[str, List[HmsTuple]], bool]:
         """ Return a list of the subsequent arrivals of buses on the
             given route at the indicated stop, with reference to the
             given timepoint, or the current time if None. Also returns
@@ -1282,8 +1291,8 @@ class BusSchedule:
         closest_trip: Dict[str, BusTrip] = dict()
         closest_gap: Dict[str, float] = dict()
 
-        def gap(trip) -> int:
-            def diff(hms1, hms2) -> int:
+        def gap(trip: BusTrip) -> int:
+            def diff(hms1: HmsTuple, hms2: HmsTuple) -> int:
                 """ Return the number of seconds between the two (h, m, s) tuples """
                 if hms1[0] >= 24:
                     # Apparently, some arrival times can exceed 23 hours,
@@ -1387,9 +1396,6 @@ class BusSchedule:
                 if estimated_arrival < now:
                     # This bus is estimated to have already arrived and left
                     continue
-                if trip.last_stop is None:
-                    # Should not happen
-                    continue
                 # We have a potentially usable result: if the arrival is closer than
                 # the previously stored one (if any), we accept it
                 if _DEBUG:
@@ -1438,7 +1444,9 @@ def print_closest_stop(location: LatLonTuple) -> None:
     print("The distance to it is {0:.1f} km".format(distance(location, s.location)))
 
 
-def print_next_arrivals(schedule, location: LatLonTuple, route_number):
+def print_next_arrivals(
+    schedule: BusSchedule, location: Union[str, LatLonTuple], route_number: str
+) -> None:
     """ Answers the query: 'when does bus X arrive?' at a given location
         or bus stop name """
     if isinstance(location, tuple):
@@ -1485,7 +1493,7 @@ def print_next_arrivals(schedule, location: LatLonTuple, route_number):
             )
 
 
-def initialize():
+def initialize() -> None:
     """ (Re-)initialize all schedule data from text files in the
         resources/ subdirectory """
     # Read stops.txt
@@ -1502,7 +1510,7 @@ def initialize():
     BusService.initialize()
 
 
-def fetch_gtfs():
+def fetch_gtfs() -> bool:
     """ Download the GTFS.zip file and unpack it in the resources/ subdirectory """
     res_path = _RESOURCES_PATH()
     # The resources/ subdirectory must be writable so we can fetch
@@ -1539,7 +1547,9 @@ def fetch_gtfs():
     return True
 
 
-def refresh(*, if_older_than=None, re_initialize=False):
+def refresh(
+    *, if_older_than: Optional[int] = None, re_initialize: bool = False
+) -> bool:
     """ Attempt to fetch the most recent GTFS.zip file from the Straeto
         open data source, and reinitialize the already loaded schedule
         data if requested. if_older_than is given in hours, with None
