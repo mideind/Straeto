@@ -48,7 +48,7 @@ from .straeto import (
 
 __author__ = "Miðeind ehf."
 __copyright__ = "(C) 2023 Miðeind ehf."
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 __all__ = [
     "Bus",
