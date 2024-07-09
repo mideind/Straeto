@@ -58,7 +58,7 @@ from typing import (
 import os
 import re
 import math
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, datetime, timedelta, timezone
 import threading
 import functools
 from collections import defaultdict
@@ -138,6 +138,11 @@ _VOICE_NAMES: Mapping[str, str] = {
 # looking up areas in the following order (which in practice means that '1'
 # resolves to bus route number 1 in the capital area, not in the east fjords)
 _DEFAULT_AREA_PRIORITY = ("ST", "SU", "VL", "SN", "NO", "RY", "AF")
+
+
+def utcnow() -> datetime:
+    """Return the current time in UTC"""
+    return datetime.now(timezone.utc)
 
 
 def distance(loc1: LatLonTuple, loc2: LatLonTuple) -> float:
@@ -225,7 +230,7 @@ class BusCalendar:
     @staticmethod
     def today() -> Set[str]:
         """Return a set of service_ids that are active today (UTC/Icelandic time)"""
-        now = datetime.utcnow()
+        now = utcnow()
         return BusCalendar.lookup(date(now.year, now.month, now.day))
 
     @staticmethod
@@ -286,7 +291,7 @@ class BusTrip:
         block: str,
     ):
         self._id = trip_id
-        assert "." in route_id
+        # assert "." in route_id
         self._route_id = route_id
         self._headsign = headsign
         self._short_name = short_name
@@ -578,9 +583,11 @@ class BusRoute:
     def __init__(self, route_id: str) -> None:
         # We store the long-form route_id, i.e. 'ST.1' for route 1
         # in the capital area
-        assert "." in route_id
         self._id = route_id
-        self._area, self._number = route_id.split(".", maxsplit=2)
+        if "." in route_id:
+            self._area, self._number = route_id.split(".", maxsplit=2)
+        else:
+            self._area, self._number = "", route_id
         self._services: Dict[str, BusService] = dict()
         assert route_id not in BusRoute._all_routes, (
             "route_id " + route_id + " already exists"
@@ -595,7 +602,7 @@ class BusRoute:
         """Returns a list of the services on this route
         that are active on the given date"""
         if on_date is None:
-            now = datetime.utcnow()
+            now = utcnow()
             on_date = date(now.year, now.month, now.day)
         return [s for s in self._services.values() if s.is_active_on_date(on_date)]
 
@@ -648,7 +655,7 @@ class BusRoute:
         """Return the route having the given full identifier"""
         if route_id is None:
             return None
-        assert "." in route_id
+        # assert "." in route_id, f"Invalid route_id '{route_id}'"
         return BusRoute._all_routes.get(route_id)
 
     @staticmethod
@@ -674,9 +681,9 @@ class BusRoute:
                     continue
                 # Format is:
                 # route_id,service_id,trip_id,trip_headsign,trip_short_name,
-                # direction_id,block_id,shape_id
+                # direction_id,block_id,shape_id,wheelchair_accessible,bikes_allowed
                 s = line.split(",")
-                assert len(s) == 8
+                assert len(s) >= 7
                 # Break 'ST.17' into components area='ST' and number='17'
                 route_id = s[0]
                 route = BusRoute.lookup(route_id) or BusRoute(route_id)
@@ -855,7 +862,7 @@ class BusStop:
                 # Format is:
                 # stop_id,stop_name,stop_lat,stop_lon,location_type
                 df = line.split(",")
-                assert len(df) == 5
+                assert len(df) >= 4
                 stop_id = df[0].strip()
                 assert stop_id not in BusStop._all_stops
                 BusStop(
@@ -1082,14 +1089,14 @@ class Bus:
                 code=code,
                 timestamp=dt,
             )
-        Bus._info_timestamp = datetime.utcnow()
+        Bus._info_timestamp = utcnow()
 
     @staticmethod
     def refresh_state() -> None:
         """Load a new state, if required"""
         with Bus._lock:
             if Bus._info_timestamp is not None:
-                delta = datetime.utcnow() - Bus._info_timestamp
+                delta = utcnow() - Bus._info_timestamp
                 if delta.total_seconds() < _REFRESH_INTERVAL:
                     # The state that we already have is less than
                     # _REFRESH_INTERVAL seconds old: no need to refresh
@@ -1171,7 +1178,7 @@ class BusSchedule:
             str, DefaultDict[str, DefaultDict[str, List[HmsTuple]]]
         ] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         if for_date is None:
-            now = datetime.utcnow()
+            now = utcnow()
             for_date = date(now.year, now.month, now.day)
         self._for_date = for_date
         for route in BusRoute.all_routes().values():
@@ -1191,7 +1198,7 @@ class BusSchedule:
     @property
     def is_valid_today(self) -> bool:
         """Return True if this schedule is valid for today"""
-        now = datetime.utcnow()
+        now = utcnow()
         return self._for_date == date(now.year, now.month, now.day)
 
     def print_schedule(self, route_id: str) -> None:
@@ -1236,7 +1243,7 @@ class BusSchedule:
         if route_id is None:
             return h, arrives
         if after_hms is None:
-            now = datetime.utcnow()
+            now = utcnow()
             after_hms = (now.hour, now.minute, now.second)
         s = self._sched[route_id]
         for direction, halts in s.items():
@@ -1290,7 +1297,7 @@ class BusSchedule:
             return None
 
         # Establish the current time in h:m:s format
-        now = datetime.utcnow()
+        now = utcnow()
         today = date.today()
         after_hms = (now.hour, now.minute, now.second)
         # Find the trip that is closest to the current time
@@ -1570,7 +1577,7 @@ def refresh(
             # No such file: skip through to the initialization
             pass
         else:
-            now = datetime.utcnow()
+            now = utcnow()
             ts_file = datetime.fromtimestamp(tm_time)
             if now - ts_file <= timedelta(hours=if_older_than):
                 # File is younger than if_older_than: no need to refresh
