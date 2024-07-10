@@ -499,14 +499,14 @@ class BusService:
                 schedule = schedule[4:]
             self._service = schedule
             # Decode year, month, date
-            self._valid_from = date(
-                int(schedule[0:4]),
-                int(schedule[4:6]),
-                int(schedule[6:8]),
-            )
+            # self._valid_from = date(
+            #     int(schedule[0:4]),
+            #     int(schedule[4:6]),
+            #     int(schedule[6:8]),
+            # )
             # Decode weekday validity of service,
             # M T W T F S S
-            self._weekdays = [c != "-" for c in schedule[9:16]]
+            # self._weekdays = [c != "-" for c in schedule[9:16]]
             # List of trips, ordered by start time
             self._ordered_trips: List[BusTrip] = []
             # Collect all services in a single dict
@@ -558,13 +558,13 @@ class BusService:
             in BusCalendar.lookup(on_date)
         )
 
-    def is_active_on_weekday(self, weekday: int) -> bool:
-        """Returns True if the service is active on the given weekday.
-        This is currently not reliable."""
-        try:
-            return self._weekdays[weekday]
-        except IndexError:
-            return False
+    # def is_active_on_weekday(self, weekday: int) -> bool:
+    #     """Returns True if the service is active on the given weekday.
+    #     This is currently not reliable."""
+    #     try:
+    #         return self._weekdays[weekday]
+    #     except IndexError:
+    #         return False
 
     def add_trip(self, trip: BusTrip) -> None:
         """Add a trip to this service"""
@@ -955,12 +955,14 @@ class BusHalt:
                     continue
                 # Format is:
                 # trip_id,arrival_time,departure_time,stop_id,
-                # stop_sequence,stop_headsign,pickup_type
+                # stop_sequence,stop_headsign,pickup_type,
+                # drop_off_type,shape_dist_traveled,timepoint,
+                # continuous_pickup,continuous_drop_off
                 df = line.split(",")
-                assert len(df) == 7
+                assert len(df) >= 5
                 BusHalt(
                     df[0].strip(),  # trip_id
-                    to_hms(df[1].strip()),  # arrival_time
+                    to_hms(df[1].strip('"')),  # arrival_time
                     # to_hms(df[2].strip()),  # departure_time
                     df[3].strip(),  # stop_id
                     int(df[4]),  # stop_sequence
